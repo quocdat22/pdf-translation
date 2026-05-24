@@ -1,0 +1,42 @@
+# ============================================================
+# pdf-translator — File cấu hình mẫu
+# Sao chép file này thành ~/.config/pdf-translator/config.toml
+# và điền các giá trị phù hợp.
+# ============================================================
+
+[api]
+# DeepSeek API key (bắt buộc)
+# Hoặc đặt biến môi trường: PDF_TRANSLATOR_API_KEY=sk-xxx
+key = "sk-your-deepseek-api-key"
+
+# Base URL của API endpoint (mặc định: DeepSeek)
+base_url = "https://api.deepseek.com"
+
+# Model LLM dùng để dịch
+model = "deepseek-chat"
+
+[translation]
+# Ngôn ngữ nguồn
+source_lang = "English"
+
+# Ngôn ngữ đích
+target_lang = "Vietnamese"
+
+# Số trang dịch song song tối đa
+# Tăng lên nếu muốn nhanh hơn (chú ý rate limit của API)
+concurrency = 5
+
+[rendering]
+# Font size tối thiểu khi auto-shrink (pt)
+# Text có thể bị cắt nếu dịch quá dài và font đã nhỏ nhất
+min_font_size = 6.0
+
+# Đường dẫn font tùy chỉnh (để trống = dùng Noto Sans bundle)
+# font_path = "/path/to/your/font.ttf"
+
+[logging]
+# Mức log: DEBUG | INFO | WARNING | ERROR
+level = "INFO"
+
+# Đường dẫn file log (để trống = chỉ log ra console)
+# log_file = "/path/to/pdf-translator.log"

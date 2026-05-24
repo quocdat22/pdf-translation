@@ -1,0 +1,45 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+
+# uv
+uv.lock
+
+# Pytest & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment / secrets
+.env
+*.env.local
+config.toml
+
+plan.md
+fonts/
+
+
+# PDF output files (test artifacts)
+*_translated.pdf
+tests/fixtures/*.pdf
+
+# OS
+.DS_Store
+Thumbs.db
+

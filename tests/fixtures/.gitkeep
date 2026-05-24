@@ -1,0 +1,6 @@
+# Thư mục này chứa các file PDF mẫu dùng cho tests.
+# Các file PDF KHÔNG được commit vào git (xem .gitignore).
+# Để chạy integration tests, đặt các file PDF mẫu vào đây:
+#   - sample_simple.pdf  : PDF đơn giản, 1 cột text
+#   - sample_complex.pdf : PDF phức tạp (hình, bảng, đa cột)
+#   - sample_multipage.pdf : PDF nhiều trang

@@ -4,7 +4,7 @@ Config loader cho pdf_translator.
 Thứ tự ưu tiên (cao → thấp):
 1. CLI arguments (truyền qua cli_overrides)
 2. Environment variables (tiền tố PDF_TRANSLATOR_)
-3. File config TOML (~/.config/pdf-translator/config.toml hoặc đường dẫn chỉ định)
+3. File config TOML (config.toml ở thư mục gốc của dự án hoặc đường dẫn chỉ định)
 4. Giá trị mặc định trong AppConfig
 """
 
@@ -16,8 +16,10 @@ from pathlib import Path
 
 from pdf_translator.models import AppConfig
 
-# Đường dẫn config mặc định
-DEFAULT_CONFIG_PATH = Path.home() / ".config" / "pdf-translator" / "config.toml"
+# Đường dẫn config mặc định: file config.toml ở thư mục gốc của dự án
+_THIS_DIR = Path(__file__).parent
+_PROJECT_ROOT = _THIS_DIR.parent.parent
+DEFAULT_CONFIG_PATH = _PROJECT_ROOT / "config.toml"
 
 # Tên các environment variables
 ENV_MAP: dict[str, str] = {

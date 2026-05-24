@@ -33,7 +33,8 @@ config.toml
 
 plan.md
 fonts/
-
+files/
+scratch/
 
 # PDF output files (test artifacts)
 *_translated.pdf

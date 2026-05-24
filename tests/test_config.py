@@ -19,6 +19,13 @@ class TestLoadConfig:
         assert config.api_key == ""
         assert config.concurrency == 5
 
+    def test_default_config_path_is_in_project_root(self):
+        """Kiểm tra đường dẫn mặc định nằm ở thư mục gốc của dự án."""
+        from pdf_translator.config import DEFAULT_CONFIG_PATH
+        assert DEFAULT_CONFIG_PATH.name == "config.toml"
+        assert (DEFAULT_CONFIG_PATH.parent / "src").is_dir()
+        assert (DEFAULT_CONFIG_PATH.parent / "pyproject.toml").is_file()
+
     def test_load_from_toml_file(self, sample_config_toml: Path):
         """Load từ file TOML."""
         config = load_config(config_path=sample_config_toml)

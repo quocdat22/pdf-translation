@@ -110,7 +110,7 @@ class AppConfig:
     Được nạp theo thứ tự ưu tiên:
     1. CLI arguments
     2. Environment variables (tiền tố PDF_TRANSLATOR_)
-    3. File config TOML (~/.config/pdf-translator/config.toml)
+    3. File config TOML (config.toml ở thư mục gốc của dự án)
     4. Giá trị mặc định bên dưới
 
     Attributes:

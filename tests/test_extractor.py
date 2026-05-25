@@ -61,6 +61,8 @@ def test_extract_page_real_pdf() -> None:
     )
 
     extractor = TextExtractor()
+    # Mock _is_block_vertical to return False (horizontal text) to allow extraction
+    extractor._is_block_vertical = lambda block: False
     blocks = extractor.extract_page(page)
 
     assert len(blocks) == 1
@@ -74,6 +76,7 @@ def test_extract_page_real_pdf() -> None:
     )
     assert block.page_number == 0
     doc.close()
+
 
 
 def test_extract_page_type_filtering() -> None:
@@ -90,6 +93,7 @@ def test_extract_page_type_filtering() -> None:
             "lines": [
                 {
                     "bbox": (50, 250, 300, 350),
+                    "wmode": 0,  # Ngang
                     "spans": [
                         {
                             "text": "Valid text block",
@@ -114,6 +118,7 @@ def test_extract_page_type_filtering() -> None:
     assert blocks[0].text == "Valid text block"
 
 
+
 def test_extract_page_dominant_style() -> None:
     """Test tìm style dominant khi trong block có nhiều style khác nhau."""
     blocks_data = [
@@ -123,6 +128,7 @@ def test_extract_page_dominant_style() -> None:
             "lines": [
                 {
                     "bbox": (50, 50, 400, 100),
+                    "wmode": 0,  # Ngang
                     "spans": [
                         {
                             "text": "Title",  # 5 chars
@@ -161,6 +167,7 @@ def test_extract_page_dominant_style() -> None:
     assert block.is_italic is False
 
 
+
 def test_extract_page_bold_italic_flags_and_names() -> None:
     """Test phát hiện bold và italic từ flags hoặc từ tên font."""
     blocks_data = [
@@ -169,6 +176,7 @@ def test_extract_page_bold_italic_flags_and_names() -> None:
             "bbox": (50, 50, 400, 150),
             "lines": [
                 {
+                    "wmode": 0,  # Ngang
                     "spans": [
                         {
                             "text": "Bold text",
@@ -186,6 +194,7 @@ def test_extract_page_bold_italic_flags_and_names() -> None:
             "bbox": (50, 200, 400, 300),
             "lines": [
                 {
+                    "wmode": 0,  # Ngang
                     "spans": [
                         {
                             "text": "Italic text",
@@ -214,3 +223,43 @@ def test_extract_page_bold_italic_flags_and_names() -> None:
     assert len(blocks_2) == 1
     assert blocks_2[0].is_bold is False
     assert blocks_2[0].is_italic is True
+
+
+def test_extract_page_horizontal_only_filtering() -> None:
+    """Test bộ lọc chỉ trích xuất các block nằm ngang và bỏ qua block thẳng đứng/xoay dọc."""
+    blocks_data = [
+        {
+            "type": 0,
+            "bbox": (50, 50, 100, 300),
+            "lines": [
+                {
+                    "bbox": (50, 50, 70, 300),
+                    "wmode": 1,  # Dọc
+                    "spans": [
+                        {"text": "Vertical block", "size": 10.0, "font": "Helvetica", "color": 0}
+                    ]
+                }
+            ]
+        },
+        {
+            "type": 0,
+            "bbox": (150, 50, 400, 100),
+            "lines": [
+                {
+                    "bbox": (150, 50, 400, 70),
+                    "wmode": 0,  # Ngang
+                    "spans": [
+                        {"text": "Horizontal block", "size": 10.0, "font": "Helvetica", "color": 0}
+                    ]
+                }
+            ]
+        }
+    ]
+
+    page = MockPage(blocks_data, number=0)
+    extractor = TextExtractor()
+    blocks = extractor.extract_page(page)
+
+    # Mặc định phải lọc bỏ block nằm dọc, chỉ lấy block ngang
+    assert len(blocks) == 1
+    assert blocks[0].text == "Horizontal block"

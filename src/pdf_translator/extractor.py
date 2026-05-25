@@ -84,6 +84,13 @@ class TextExtractor:
             if not block_text_parts:
                 continue
 
+            # Bỏ qua nếu block là block viết dọc hoặc xoay dọc (không nằm ngang bình thường)
+            if self._is_block_vertical(raw_block):
+                logger.debug(
+                    f"Bỏ qua block {block_id} trên trang {page.number} (phát hiện text dọc hoặc xoay dọc)"
+                )
+                continue
+
             # Gộp các dòng lại bằng khoảng trắng để tránh ngắt từ làm LLM hiểu sai ngữ cảnh
             merged_text = " ".join(block_text_parts)
 
@@ -127,6 +134,27 @@ class TextExtractor:
             block_id += 1
 
         return text_blocks
+
+    def _is_block_vertical(self, raw_block: dict) -> bool:
+        """Kiểm tra xem block text có hướng thẳng đứng (vertical) hoặc xoay dọc (rotated) hay không.
+
+        Một block được coi là thẳng đứng nếu có ít nhất một dòng:
+        1. Có writing mode là vertical (wmode == 1).
+        2. Hoặc có vector hướng (dir) nghiêng về trục dọc nhiều hơn trục ngang (abs(dy) > abs(dx)).
+        """
+        for line in raw_block.get("lines", []):
+            wmode = line.get("wmode", 0)
+            if wmode == 1:
+                return True
+
+            direction = line.get("dir")
+            if direction and len(direction) == 2:
+                dx, dy = direction
+                if abs(dy) > abs(dx):
+                    return True
+
+        return False
+
 
     def _should_skip_block(self, text: str) -> bool:
         """Kiểm tra xem block text có nên bỏ qua hay không.

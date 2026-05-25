@@ -1,6 +1,6 @@
 # ============================================================
 # pdf-translator — File cấu hình mẫu
-# Sao chép file này thành ~/.config/pdf-translator/config.toml
+# Sao chép file này thành config.toml ở thư mục gốc của dự án
 # và điền các giá trị phù hợp.
 # ============================================================
 

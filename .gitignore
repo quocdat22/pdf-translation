@@ -32,7 +32,7 @@ coverage.xml
 config.toml
 
 plan.md
-fonts/
+/fonts/
 files/
 scratch/
 

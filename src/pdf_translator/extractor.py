@@ -110,7 +110,8 @@ class TextExtractor:
                         merged_text = " ".join(block_text_parts)
                         cleaned_text = re.sub(r"\s+", " ", merged_text).strip()
                         
-                        if self._should_skip_block(cleaned_text):
+                        cell_font_names = [style[0][0] for style in span_styles]
+                        if self._should_skip_block(cleaned_text, cell_font_names):
                             continue
                             
                         # Xác định dominant style
@@ -205,7 +206,8 @@ class TextExtractor:
             cleaned_text = re.sub(r"\s+", " ", merged_text).strip()
 
             # Kiểm tra xem block có cần dịch hay không
-            if self._should_skip_block(cleaned_text):
+            block_font_names = [style[0][0] for style in span_styles]
+            if self._should_skip_block(cleaned_text, block_font_names):
                 logger.debug(
                     f"Bỏ qua block {block_id} trên trang {page.number}: '{cleaned_text}'"
                 )
@@ -263,17 +265,86 @@ class TextExtractor:
         return False
 
 
-    def _should_skip_block(self, text: str) -> bool:
+    def _is_math_block(self, text: str, font_names: list[str] | None = None) -> bool:
+        """Kiểm tra xem block text có phải là biểu thức/ký tự toán học hay không."""
+        stripped = text.strip()
+        if not stripped:
+            return False
+
+        # 1. Kiểm tra Font chữ toán học
+        math_font_pattern = re.compile(
+            r"math|symbol|cmmi|cmsy|cmex|msam|msbm|euler|latex|katex|mtmi|mtsy|mtex|lgr|cbgreek",
+            re.IGNORECASE
+        )
+        has_math_font = False
+        if font_names:
+            for font in font_names:
+                if math_font_pattern.search(font):
+                    has_math_font = True
+                    break
+
+        # 2. Kiểm tra ký hiệu toán học hoặc chữ Hy Lạp trong text
+        math_or_greek_char_pattern = re.compile(
+            r"["
+            r"\u0370-\u03FF"       # Greek and Coptic
+            r"\u1F00-\u1FFF"       # Greek Extended
+            r"\u2100-\u214F"       # Letterlike Symbols
+            r"\u2190-\u21FF"       # Arrows
+            r"\u2200-\u22FF"       # Mathematical Operators
+            r"\u27C0-\u27EF"       # Miscellaneous Mathematical Symbols-A
+            r"\u2900-\u297F"       # Supplemental Arrows-B
+            r"\u2980-\u29FF"       # Miscellaneous Mathematical Symbols-B
+            r"\u2070-\u209F"       # Superscripts and Subscripts
+            r"=+\-*/^<>≤≥≈≠±×÷"    # Standard math characters/operators
+            r"]"
+        )
+        has_math_char = bool(math_or_greek_char_pattern.search(stripped))
+        
+        # Kiểm tra thêm Mathematical Alphanumeric Symbols (plane 1)
+        if not has_math_char:
+            for char in stripped:
+                if 0x1D400 <= ord(char) <= 0x1D7FF:
+                    has_math_char = True
+                    break
+
+        # 3. Đếm từ tiếng Anh bình thường (độ dài >= 3 và không thuộc MATH_KEYWORDS)
+        words = re.findall(r"\b[a-zA-Z]{3,}\b", stripped)
+        
+        math_keywords = {
+            # Các hàm toán học phổ biến
+            "sin", "cos", "tan", "cot", "csc", "sec", "sinh", "cosh", "tanh", "coth",
+            "log", "ln", "lg", "exp", "lim", "max", "min", "abs", "det", "inf", "sup",
+            "arg", "deg", "dim", "extra", "ker", "var", "cov", "sgn", "mod", "div", "grad",
+            "curl", "arc", "sqrt", "tr", "diag", "span", "rank",
+            # Tên các chữ cái Hy Lạp
+            "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta",
+            "iota", "kappa", "lambda", "mu", "nu", "xi", "pi", "rho", "sigma",
+            "tau", "upsilon", "phi", "chi", "psi", "omega",
+            # Các từ LaTeX phổ biến
+            "frac", "left", "right", "begin", "end", "mathrm", "mathbf", "mathit",
+            "quad", "qquad", "prod", "sum", "int", "diff", "partial"
+        }
+        
+        normal_words = [w for w in words if w.lower() not in math_keywords]
+        
+        # Điều kiện xác định:
+        # Nếu dùng font toán học OR có ký tự toán học, AND không có từ bình thường nào (normal_words = 0)
+        if (has_math_font or has_math_char) and len(normal_words) == 0:
+            return True
+
+        return False
+
+    def _should_skip_block(self, text: str, font_names: list[str] | None = None) -> bool:
         """Kiểm tra xem block text có nên bỏ qua hay không.
 
         Các trường hợp bỏ qua:
         1. Trống hoặc chỉ toàn khoảng trắng.
-        2. Chỉ chứa số (ví dụ: '123', '45.6', '2026').
-        3. Chỉ chứa các ký tự đặc biệt, ký hiệu hoặc dấu câu (ví dụ: '•', '—', '*', '...', '$, %').
-        4. Không chứa bất kỳ ký tự chữ cái (a-zA-Z) nào.
+        2. Là biểu thức/ký tự toán học cần giữ nguyên chất lượng gốc.
+        3. Không chứa bất kỳ ký tự chữ cái (a-zA-Z) nào.
 
         Args:
             text: Văn bản cần kiểm tra.
+            font_names: Danh sách tên font của các span trong block.
 
         Returns:
             True nếu nên bỏ qua block này, ngược lại False.
@@ -282,9 +353,11 @@ class TextExtractor:
         if not stripped:
             return True
 
+        # Nếu là block toán học, bỏ qua để giữ nguyên gốc
+        if self._is_math_block(stripped, font_names):
+            return True
+
         # Nếu không có bất kỳ chữ cái tiếng Anh/Latin nào, thì bỏ qua không dịch.
-        # Điều này loại bỏ các block chỉ có số, ký tự đặc biệt, ký hiệu toán học...
-        # nhưng vẫn giữ các từ tiếng Anh ngắn.
         if not re.search(r"[a-zA-Z]", stripped):
             return True
 

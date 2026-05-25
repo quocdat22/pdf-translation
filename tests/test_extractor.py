@@ -356,3 +356,27 @@ def test_extract_page_with_tables() -> None:
     assert normal_block.text == "Outside Text"
     assert normal_block.bbox == (50, 50, 200, 70)
 
+
+def test_should_skip_block_math() -> None:
+    """Test hàm _should_skip_block với các khối ký hiệu và biểu thức toán học."""
+    extractor = TextExtractor()
+
+    # Khối chứa công thức toán
+    assert extractor._should_skip_block("h1 = a[θ10 + θ11x1 + θ12x2]", ["CMMI10"]) is True
+    assert extractor._should_skip_block("h1 = a[θ10 + θ11x1 + θ12x2]") is True  # Vẫn bỏ qua ngay cả khi không truyền font nhờ ký tự toán/greek
+    
+    # Biến toán học đơn lẻ dùng font toán
+    assert extractor._should_skip_block("x", ["CMMI10"]) is True
+    # Biến toán học đơn lẻ dùng font thường thì không bỏ qua (chờ check Latin ở bước sau)
+    assert extractor._should_skip_block("x", ["Helvetica"]) is False
+    
+    # Phép tính toán học đơn giản
+    assert extractor._should_skip_block("1 + 1 = 2") is True
+    assert extractor._should_skip_block("f(x, y) = x^2 + y^2") is True
+    assert extractor._should_skip_block("sin(x) + cos(y) = 1") is True
+    
+    # Các câu/từ thông thường chứa ký tự toán học (không được bỏ qua)
+    assert extractor._should_skip_block("Let x = 1", ["Helvetica"]) is False
+    assert extractor._should_skip_block("The temperature is T > 30°C", ["Helvetica"]) is False
+    assert extractor._should_skip_block("USD 25") is False
+

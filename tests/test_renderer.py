@@ -102,3 +102,33 @@ def test_renderer_render_page() -> None:
     assert "Văn bản tiếng Việt" in page_text
 
     doc.close()
+
+
+def test_renderer_get_expanded_rect() -> None:
+    """Test helper _get_expanded_rect thực hiện mở rộng bbox chính xác."""
+    fm = FontManager()
+    renderer = TextRenderer(fm)
+
+    # Khung gốc: chiều rộng = 100, chiều cao = 10 (khá bé so với font size 10)
+    bbox = (50, 50, 150, 60)
+    font_size = 10.0
+
+    expanded = renderer._get_expanded_rect(bbox, font_size)
+
+    # Chiều rộng phải tăng thêm 5% -> 100 * 1.05 = 105
+    assert expanded.width == 105.0
+    # Chiều cao ban đầu (10) nhỏ hơn font_size * 1.8 (18) -> phải được tăng lên 18
+    assert expanded.height == 18.0
+    # Mép trên y0 phải giữ nguyên để bảo toàn vị trí căn lề trên
+    assert expanded.y0 == 50.0
+    # Mép dưới y1 phải kéo dài xuống dưới -> 50 + 18 = 68
+    assert expanded.y1 == 68.0
+
+    # Khung gốc lớn sẵn: chiều rộng = 100, chiều cao = 30 (lớn hơn font_size * 1.8)
+    bbox_large = (50, 50, 150, 80)
+    expanded_large = renderer._get_expanded_rect(bbox_large, font_size)
+    assert expanded_large.width == 105.0
+    # Chiều cao ban đầu (30) lớn hơn 18 -> giữ nguyên chiều cao 30
+    assert expanded_large.height == 30.0
+    assert expanded_large.y1 == 80.0
+

@@ -69,11 +69,12 @@ class TextRenderer:
                     )
                     registered_temp_fonts.add(font_name)
 
-                # Tính font size vừa vặn nhất
+                # Tính font size vừa vặn nhất bằng cách sử dụng bounding box mở rộng
+                expanded_rect = self._get_expanded_rect(block.original.bbox, block.original.font_size)
                 adjusted_size = self._calculate_font_size(
                     temp_page=temp_page,
                     text=block.translated_text,
-                    bbox=block.original.bbox,
+                    bbox=tuple(expanded_rect),
                     original_size=block.original.font_size,
                     min_size=min_font_size,
                     font_name=font_name,
@@ -113,7 +114,7 @@ class TextRenderer:
             if not block.translated_text:
                 continue
 
-            rect = fitz.Rect(block.original.bbox)
+            rect = self._get_expanded_rect(block.original.bbox, block.original.font_size)
             font_key = (block.original.is_bold, block.original.is_italic)
             font_name = self.font_manager.FONT_NAMES[font_key]
 
@@ -136,6 +137,25 @@ class TextRenderer:
                 fontname=font_name,
                 color=color,
             )
+
+    def _get_expanded_rect(
+        self, bbox: tuple[float, float, float, float], font_size: float
+    ) -> fitz.Rect:
+        """Tạo bounding box mở rộng để tránh việc co chữ quá mức hoặc mất chữ do giới hạn dòng.
+
+        Mở rộng chiều cao xuống dưới dựa trên font size để đảm bảo đủ chiều cao dòng (line height)
+        và nới rộng chiều rộng thêm 5% về phía bên phải để tránh tràn chiều ngang.
+        """
+        x0, y0, x1, y1 = bbox
+        w = x1 - x0
+        h = y1 - y0
+
+        # Hệ số mở rộng chiều cao an toàn cho line-height của PyMuPDF
+        new_h = max(h, font_size * 1.8)
+        # Nới rộng chiều rộng thêm 5% để tạo khoảng trống thở cho bản dịch
+        new_w = w + (w * 0.05)
+
+        return fitz.Rect(x0, y0, x0 + new_w, y0 + new_h)
 
     def _calculate_font_size(
         self,

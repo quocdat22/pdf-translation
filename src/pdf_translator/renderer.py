@@ -69,14 +69,20 @@ class TextRenderer:
                     )
                     registered_temp_fonts.add(font_name)
 
-                # Tính font size vừa vặn nhất bằng cách sử dụng bounding box mở rộng
-                expanded_rect = self._get_expanded_rect(block.original.bbox, block.original.font_size)
+                # Tính font size vừa vặn nhất
+                if block.original.is_table_cell:
+                    rect_to_use = fitz.Rect(block.original.bbox)
+                    cell_min_font_size = min(4.0, min_font_size)
+                else:
+                    rect_to_use = self._get_expanded_rect(block.original.bbox, block.original.font_size)
+                    cell_min_font_size = min_font_size
+
                 adjusted_size = self._calculate_font_size(
                     temp_page=temp_page,
                     text=block.translated_text,
-                    bbox=tuple(expanded_rect),
+                    bbox=tuple(rect_to_use),
                     original_size=block.original.font_size,
-                    min_size=min_font_size,
+                    min_size=cell_min_font_size,
                     font_name=font_name,
                 )
                 block.adjusted_font_size = adjusted_size
@@ -92,13 +98,17 @@ class TextRenderer:
     def _redact_original_text(
         self, page: fitz.Page, blocks: list[TranslatedBlock]
     ) -> None:
-        """Xóa văn bản gốc bằng redaction annotation (phủ nền trắng)."""
+        """Xóa văn bản gốc bằng redaction annotation (phủ nền trắng hoặc để trong suốt)."""
         for block in blocks:
             if not block.original.text.strip():
                 continue
             rect = fitz.Rect(block.original.bbox)
-            # Sử dụng màu trắng (1, 1, 1) để che đè
-            page.add_redact_annot(rect, fill=(1, 1, 1))
+            # Dùng fill=False (trong suốt) cho table cell để giữ nguyên màu nền/đường viền của bảng
+            if block.original.is_table_cell:
+                page.add_redact_annot(rect, fill=False)
+            else:
+                # Sử dụng màu trắng (1, 1, 1) để che đè cho block thường
+                page.add_redact_annot(rect, fill=(1, 1, 1))
 
         page.apply_redactions()
         # Chuẩn hóa và tối ưu hóa nội dung trang sau khi xóa
@@ -114,7 +124,10 @@ class TextRenderer:
             if not block.translated_text:
                 continue
 
-            rect = self._get_expanded_rect(block.original.bbox, block.original.font_size)
+            if block.original.is_table_cell:
+                rect = fitz.Rect(block.original.bbox)
+            else:
+                rect = self._get_expanded_rect(block.original.bbox, block.original.font_size)
             font_key = (block.original.is_bold, block.original.is_italic)
             font_name = self.font_manager.FONT_NAMES[font_key]
 

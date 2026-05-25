@@ -35,13 +35,120 @@ class TextExtractor:
             Danh sách các TextBlock hợp lệ đã được gộp và làm sạch.
         """
         text_blocks: list[TextBlock] = []
+        
+        # 1. Phát hiện các bảng trên trang
+        try:
+            tables = page.find_tables()
+            table_list = tables.tables if tables else []
+        except Exception as e:
+            logger.warning(f"Lỗi khi phát hiện bảng trên trang {page.number}: {e}")
+            table_list = []
+
+        block_id = 0
+
+        # 2. Trích xuất text từ các ô trong bảng trước
+        for table in table_list:
+            for r_idx, row in enumerate(table.rows):
+                for c_idx, cell_bbox in enumerate(row.cells):
+                    if not cell_bbox:
+                        continue
+                    # Trích xuất chi tiết spans nằm trong ô này để lấy text và dominant style
+                    clip_dict = page.get_text("dict", clip=cell_bbox)
+                    cell_raw_blocks = clip_dict.get("blocks", [])
+                    
+                    block_text_parts: list[str] = []
+                    span_styles: list[tuple[tuple[str, float, int, bool, bool], int]] = []
+                    
+                    for raw_block in cell_raw_blocks:
+                        if raw_block.get("type", 0) != 0:
+                            continue
+                        for line in raw_block.get("lines", []):
+                            line_spans = line.get("spans", [])
+                            line_text_parts: list[str] = []
+                            for span in line_spans:
+                                text = span.get("text", "")
+                                if not text:
+                                    continue
+                                line_text_parts.append(text)
+                                
+                                font_name = span.get("font", "Helvetica")
+                                font_size = span.get("size", 10.0)
+                                color = span.get("color", 0)
+                                flags = span.get("flags", 0)
+                                
+                                is_bold = bool(flags & 16) or "bold" in font_name.lower()
+                                is_italic = bool(flags & 2) or "italic" in font_name.lower() or "oblique" in font_name.lower()
+                                
+                                style_key = (font_name, font_size, color, is_bold, is_italic)
+                                span_styles.append((style_key, len(text)))
+                                
+                            if line_text_parts:
+                                line_text = "".join(line_text_parts)
+                                block_text_parts.append(line_text)
+                                
+                    if not block_text_parts:
+                        # Fallback nếu không trích xuất được span nào qua clip nhưng table.extract() có text
+                        fallback_text = ""
+                        try:
+                            fallback_text = table.extract()[r_idx][c_idx]
+                        except Exception:
+                            pass
+                        
+                        if not fallback_text or not fallback_text.strip():
+                            continue
+                            
+                        cleaned_text = fallback_text.strip()
+                        if self._should_skip_block(cleaned_text):
+                            continue
+                            
+                        font_name = "Helvetica"
+                        font_size = 9.0
+                        color = 0
+                        is_bold = False
+                        is_italic = False
+                    else:
+                        merged_text = " ".join(block_text_parts)
+                        cleaned_text = re.sub(r"\s+", " ", merged_text).strip()
+                        
+                        if self._should_skip_block(cleaned_text):
+                            continue
+                            
+                        # Xác định dominant style
+                        style_weights: Counter[tuple[str, float, int, bool, bool]] = Counter()
+                        for style_key, weight in span_styles:
+                            style_weights[style_key] += weight
+                        
+                        dominant_style, _ = style_weights.most_common(1)[0]
+                        font_name, font_size, color, is_bold, is_italic = dominant_style
+                        
+                    # Tạo TextBlock cho ô bảng
+                    text_block = TextBlock(
+                        block_id=block_id,
+                        text=cleaned_text,
+                        bbox=cell_bbox,
+                        font_size=font_size,
+                        font_name=font_name,
+                        color=color,
+                        is_bold=is_bold,
+                        is_italic=is_italic,
+                        page_number=page.number,
+                        is_table_cell=True,
+                    )
+                    text_blocks.append(text_block)
+                    block_id += 1
+
+        # 3. Trích xuất các block text thông thường ngoài bảng
         page_dict = page.get_text("dict")
         raw_blocks = page_dict.get("blocks", [])
 
-        block_id = 0
         for raw_block in raw_blocks:
             # Chỉ xử lý text blocks (type == 0)
             if raw_block.get("type", 0) != 0:
+                continue
+
+            # Bỏ qua nếu block nằm trong bảng (đã được xử lý riêng biệt theo ô)
+            bbox = raw_block.get("bbox", (0.0, 0.0, 0.0, 0.0))
+            if self._is_inside_table(bbox, table_list):
                 continue
 
             lines = raw_block.get("lines", [])
@@ -181,4 +288,30 @@ class TextExtractor:
         if not re.search(r"[a-zA-Z]", stripped):
             return True
 
+        return False
+
+    def _is_inside_table(
+        self, bbox: tuple[float, float, float, float], table_list: list
+    ) -> bool:
+        """Kiểm tra xem bounding box có nằm trong (hoặc ghi đè nhiều lên) bất kỳ bảng nào không."""
+        if not table_list:
+            return False
+
+        bx0, by0, bx1, by1 = bbox
+        block_area = (bx1 - bx0) * (by1 - by0)
+        if block_area <= 0:
+            return False
+
+        for table in table_list:
+            tx0, ty0, tx1, ty1 = table.bbox
+            # Tính phần giao nhau
+            ix0 = max(bx0, tx0)
+            iy0 = max(by0, ty0)
+            ix1 = min(bx1, tx1)
+            iy1 = min(by1, ty1)
+
+            if ix0 < ix1 and iy0 < iy1:
+                intersection_area = (ix1 - ix0) * (iy1 - iy0)
+                if (intersection_area / block_area) > 0.5:
+                    return True
         return False

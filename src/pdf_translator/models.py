@@ -38,6 +38,7 @@ class TextBlock:
     is_bold: bool = False
     is_italic: bool = False
     page_number: int = 0
+    is_table_cell: bool = False
 
     @property
     def width(self) -> float:

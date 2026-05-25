@@ -132,3 +132,80 @@ def test_renderer_get_expanded_rect() -> None:
     assert expanded_large.height == 30.0
     assert expanded_large.y1 == 80.0
 
+
+def test_renderer_render_page_table_cell() -> None:
+    """Test quá trình render một block ô bảng (không nới rộng bbox và redact với fill=False)."""
+    fm = FontManager()
+    renderer = TextRenderer(fm)
+
+    doc = fitz.open()
+    page = doc.new_page()
+
+    # Tạo các block giả lập ô bảng
+    original_block = TextBlock(
+        block_id=0,
+        text="Table Cell English",
+        bbox=(50, 50, 250, 80),
+        font_size=12.0,
+        font_name="Helvetica",
+        color=(0, 0, 0),
+        is_bold=False,
+        is_italic=False,
+        page_number=0,
+        is_table_cell=True,
+    )
+
+    translated_block = TranslatedBlock(
+        original=original_block,
+        translated_text="Dịch ô bảng",
+        adjusted_font_size=12.0,
+    )
+
+    # Thực hiện render
+    renderer.render_page(page, [translated_block], min_font_size=6.0)
+
+    page_text = page.get_text()
+    assert "Table Cell English" not in page_text
+    assert "Dịch ô bảng" in page_text
+    doc.close()
+
+
+def test_renderer_table_cell_does_not_call_expand(monkeypatch) -> None:
+    """Xác nhận _get_expanded_rect không được gọi đối với TextBlock có is_table_cell=True."""
+    fm = FontManager()
+    renderer = TextRenderer(fm)
+
+    doc = fitz.open()
+    page = doc.new_page()
+
+    original_block = TextBlock(
+        block_id=0,
+        text="Cell Text",
+        bbox=(50, 50, 200, 80),
+        font_size=10.0,
+        font_name="Helvetica",
+        color=(0, 0, 0),
+        is_bold=False,
+        is_italic=False,
+        page_number=0,
+        is_table_cell=True,
+    )
+
+    translated_block = TranslatedBlock(
+        original=original_block,
+        translated_text="Text dịch",
+        adjusted_font_size=10.0,
+    )
+
+    called = False
+    def mock_get_expanded_rect(bbox, font_size):
+        nonlocal called
+        called = True
+        return fitz.Rect(bbox)
+
+    monkeypatch.setattr(renderer, "_get_expanded_rect", mock_get_expanded_rect)
+    renderer.render_page(page, [translated_block])
+
+    assert called is False, "_get_expanded_rect should not be called for table cells"
+    doc.close()
+

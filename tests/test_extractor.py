@@ -8,17 +8,51 @@ import pytest
 from pdf_translator.extractor import TextExtractor
 
 
+class MockRow:
+    def __init__(self, bbox: tuple[float, float, float, float], cells: list[tuple[float, float, float, float]]) -> None:
+        self.bbox = bbox
+        self.cells = cells
+
+
+class MockTable:
+    def __init__(self, bbox: tuple[float, float, float, float], rows: list[MockRow], data: list[list[str]]) -> None:
+        self.bbox = bbox
+        self.rows = rows
+        self.data = data
+
+    def extract(self) -> list[list[str]]:
+        return self.data
+
+
+class MockTableFinder:
+    def __init__(self, tables: list[MockTable]) -> None:
+        self.tables = tables
+
+
 class MockPage:
     """Mock fitz.Page để test chi tiết các case cấu trúc dict mà không cần tạo file PDF thật."""
 
-    def __init__(self, blocks_data: list[dict], number: int = 0) -> None:
+    def __init__(self, blocks_data: list[dict], number: int = 0, tables: list[MockTable] | None = None) -> None:
         self.blocks_data = blocks_data
         self.number = number
+        self.tables_list = tables or []
 
-    def get_text(self, opt: str) -> dict:
+    def get_text(self, opt: str, clip: tuple[float, float, float, float] | None = None) -> dict:
         if opt == "dict":
+            if clip:
+                cx0, cy0, cx1, cy1 = clip
+                clipped_blocks = []
+                for b in self.blocks_data:
+                    bx0, by0, bx1, by1 = b.get("bbox", (0.0, 0.0, 0.0, 0.0))
+                    # simple overlap check
+                    if max(bx0, cx0) < min(bx1, cx1) and max(by0, cy0) < min(by1, cy1):
+                        clipped_blocks.append(b)
+                return {"width": 600, "height": 800, "blocks": clipped_blocks}
             return {"width": 600, "height": 800, "blocks": self.blocks_data}
         return {}
+
+    def find_tables(self) -> MockTableFinder:
+        return MockTableFinder(self.tables_list)
 
 
 def test_should_skip_block() -> None:
@@ -263,3 +297,62 @@ def test_extract_page_horizontal_only_filtering() -> None:
     # Mặc định phải lọc bỏ block nằm dọc, chỉ lấy block ngang
     assert len(blocks) == 1
     assert blocks[0].text == "Horizontal block"
+
+
+def test_extract_page_with_tables() -> None:
+    """Test trích xuất trang chứa bảng biểu và lọc bỏ các block nằm trùng trong bảng."""
+    blocks_data = [
+        {
+            "type": 0,
+            "bbox": (50, 50, 200, 70),  # Ngoài bảng
+            "lines": [
+                {
+                    "wmode": 0,
+                    "spans": [{"text": "Outside Text", "size": 11.0, "font": "Helvetica", "color": 0}]
+                }
+            ]
+        },
+        {
+            "type": 0,
+            "bbox": (110, 110, 190, 140),  # Nằm trọn trong ô bảng
+            "lines": [
+                {
+                    "wmode": 0,
+                    "spans": [{"text": "Inside Cell Text", "size": 9.0, "font": "Helvetica-Bold", "color": 16777215, "flags": 16}]
+                }
+            ]
+        }
+    ]
+
+    mock_row = MockRow(
+        bbox=(100, 100, 300, 150),
+        cells=[(100, 100, 200, 150), (200, 100, 300, 150)]
+    )
+    mock_table = MockTable(
+        bbox=(100, 100, 300, 150),
+        rows=[mock_row],
+        data=[["Inside Cell Text", ""]]
+    )
+
+    page = MockPage(blocks_data, number=0, tables=[mock_table])
+    extractor = TextExtractor()
+    blocks = extractor.extract_page(page)
+
+    # Ta mong muốn tìm được:
+    # 1. Ô đầu tiên chứa text "Inside Cell Text" (được trích xuất dạng cell)
+    # 2. Block ngoài bảng "Outside Text"
+    # Ô thứ hai rỗng nên bỏ qua. Block gốc (110, 110, 190, 140) phải bị lọc bỏ để tránh trùng lặp.
+    assert len(blocks) == 2
+    
+    # Kiểm tra ô bảng
+    cell_block = [b for b in blocks if b.is_table_cell][0]
+    assert cell_block.text == "Inside Cell Text"
+    assert cell_block.bbox == (100, 100, 200, 150)
+    assert cell_block.is_bold is True
+    assert cell_block.font_size == 9.0
+
+    # Kiểm tra block thường ngoài bảng
+    normal_block = [b for b in blocks if not b.is_table_cell][0]
+    assert normal_block.text == "Outside Text"
+    assert normal_block.bbox == (50, 50, 200, 70)
+

@@ -204,3 +204,61 @@ async def test_translator_api_exception_retry_and_fallback() -> None:
     assert translated[0].translated_text == "Xin chào thế giới"
     assert translated[1].translated_text == "Tài liệu mẫu"
     assert mock_create.call_count == 2
+
+
+def test_translator_build_prompt_with_table_cells() -> None:
+    """Test xây dựng prompt chứa marker (Table Cell) cho ô bảng."""
+    config = AppConfig(api_key="test-key")
+    translator = Translator(config)
+
+    blocks = [
+        TextBlock(
+            block_id=0,
+            text="Hello world",
+            bbox=(0, 0, 100, 20),
+            font_size=10.0,
+            font_name="helv",
+            color=0,
+            is_table_cell=False,
+        ),
+        TextBlock(
+            block_id=1,
+            text="Table Content",
+            bbox=(0, 30, 100, 50),
+            font_size=10.0,
+            font_name="helv",
+            color=0,
+            is_table_cell=True,
+        ),
+    ]
+
+    prompt = translator._build_prompt(blocks)
+    assert "[1] Hello world" in prompt
+    assert "[2] (Table Cell) Table Content" in prompt
+
+
+def test_translator_parse_response_removes_table_cell_marker() -> None:
+    """Test parse response loại bỏ marker (Table Cell) nếu LLM vô tình lặp lại."""
+    config = AppConfig(api_key="test-key")
+    translator = Translator(config)
+
+    blocks = [
+        TextBlock(
+            block_id=0,
+            text="Table Content",
+            bbox=(0, 0, 100, 20),
+            font_size=10.0,
+            font_name="helv",
+            color=0,
+            is_table_cell=True,
+        )
+    ]
+
+    response = "[1] (Table Cell) Nội dung bảng"
+    parsed_map = translator._parse_response(response, blocks)
+    assert parsed_map[0] == "Nội dung bảng"
+
+    response_no_marker = "[1] Nội dung bảng"
+    parsed_map_no_marker = translator._parse_response(response_no_marker, blocks)
+    assert parsed_map_no_marker[0] == "Nội dung bảng"
+

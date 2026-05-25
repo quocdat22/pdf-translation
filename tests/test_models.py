@@ -27,6 +27,19 @@ class TestTextBlock:
         assert block.is_bold is False
         assert block.is_italic is False
         assert block.page_number == 0
+        assert block.is_table_cell is False
+
+    def test_table_cell_creation(self):
+        block = TextBlock(
+            block_id=0,
+            text="Cell",
+            bbox=(10, 20, 110, 40),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0.0, 0.0, 0.0),
+            is_table_cell=True,
+        )
+        assert block.is_table_cell is True
 
     def test_width_height(self):
         block = TextBlock(

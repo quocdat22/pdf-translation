@@ -121,23 +121,26 @@ class Translator:
             "- Do NOT translate proper nouns, brand names, or technical terms that are commonly kept in English (e.g., CLI, API, PDF, Python, Git).\n"
             "- Do NOT add any explanations, notes, or conversational text.\n"
             "- Keep the translation concise — the translated text should be similar in length to the original when possible.\n"
+            "- If a input block is prefixed with '(Table Cell)', it belongs to a narrow table column. You MUST translate it extremely concisely (using shorter words or abbreviations if common) to prevent layout overflow. Do not include the '(Table Cell)' marker in your translation.\n"
             "\n"
             "Input format:\n"
             "[1] Text block 1\n"
-            "[2] Text block 2\n"
+            "[2] (Table Cell) Text block 2\n"
             "\n"
             "Output format:\n"
             "[1] Bản dịch block 1\n"
-            "[2] Bản dịch block 2"
+            "[2] Bản dịch ngắn của block 2"
         )
 
     def _build_prompt(self, blocks: list[TextBlock]) -> str:
-        """Xây dựng prompt gộp các block kèm theo số thứ tự (1-based)."""
+        """Xây dựng prompt gộp các block kèm theo số thứ tự (1-based) và marker ô bảng."""
         lines = []
         for i, block in enumerate(blocks, start=1):
-            # Thay thế các khoảng trắng xuống dòng dư thừa thành 1 dấu cách để làm sạch câu trước khi gửi
             clean_text = re.sub(r"\s+", " ", block.text).strip()
-            lines.append(f"[{i}] {clean_text}")
+            if block.is_table_cell:
+                lines.append(f"[{i}] (Table Cell) {clean_text}")
+            else:
+                lines.append(f"[{i}] {clean_text}")
         return "\n".join(lines)
 
     def _parse_response(
@@ -153,7 +156,10 @@ class Translator:
             try:
                 idx = int(num_str) - 1
                 if 0 <= idx < len(original_blocks):
-                    parsed_map[idx] = text.strip()
+                    cleaned_text = text.strip()
+                    # Loại bỏ marker nếu LLM vô tình lặp lại
+                    cleaned_text = re.sub(r"^\(Table Cell\)\s*", "", cleaned_text, flags=re.IGNORECASE)
+                    parsed_map[idx] = cleaned_text
             except ValueError:
                 continue
 

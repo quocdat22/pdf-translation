@@ -59,11 +59,12 @@ class TextRenderer:
                     continue
 
                 # Xác định variant font cần dùng và đăng ký trên temp page (nếu chưa có)
-                font_key = (block.original.is_bold, block.original.is_italic)
+                font_key = (block.original.font_family, block.original.is_bold, block.original.is_italic)
                 font_name = self.font_manager.FONT_NAMES[font_key]
                 if font_name not in registered_temp_fonts:
                     self.font_manager.register_font(
                         temp_page,
+                        family=block.original.font_family,
                         is_bold=block.original.is_bold,
                         is_italic=block.original.is_italic,
                     )
@@ -84,6 +85,7 @@ class TextRenderer:
                     original_size=block.original.font_size,
                     min_size=cell_min_font_size,
                     font_name=font_name,
+                    align=block.original.align,
                 )
                 block.adjusted_font_size = adjusted_size
         finally:
@@ -103,14 +105,14 @@ class TextRenderer:
             if not block.original.text.strip():
                 continue
             rect = fitz.Rect(block.original.bbox)
-            # Dùng fill=False (trong suốt) cho table cell để giữ nguyên màu nền/đường viền của bảng
-            if block.original.is_table_cell:
-                page.add_redact_annot(rect, fill=False)
-            else:
-                # Sử dụng màu trắng (1, 1, 1) để che đè cho block thường
-                page.add_redact_annot(rect, fill=(1, 1, 1))
+            # Dùng fill=False (trong suốt) cho mọi block để giữ nguyên màu nền/đồ họa/hình ảnh
+            page.add_redact_annot(rect, fill=False)
 
-        page.apply_redactions()
+        # Chỉ xóa text, giữ nguyên hình ảnh (images) và đồ họa dạng vector (graphics/line art)
+        page.apply_redactions(
+            images=fitz.PDF_REDACT_IMAGE_NONE,
+            graphics=fitz.PDF_REDACT_LINE_ART_NONE
+        )
         # Chuẩn hóa và tối ưu hóa nội dung trang sau khi xóa
         page.clean_contents()
 
@@ -128,13 +130,14 @@ class TextRenderer:
                 rect = fitz.Rect(block.original.bbox)
             else:
                 rect = self._get_expanded_rect(block.original.bbox, block.original.font_size)
-            font_key = (block.original.is_bold, block.original.is_italic)
+            font_key = (block.original.font_family, block.original.is_bold, block.original.is_italic)
             font_name = self.font_manager.FONT_NAMES[font_key]
 
             # Đăng ký font trên trang thật (nếu chưa có)
             if font_name not in registered_real_fonts:
                 self.font_manager.register_font(
                     page,
+                    family=block.original.font_family,
                     is_bold=block.original.is_bold,
                     is_italic=block.original.is_italic,
                 )
@@ -142,13 +145,14 @@ class TextRenderer:
 
             color = block.original.color_rgb
 
-            # Canh lề trái mặc định (align=0)
+            # Sử dụng đúng căn lề của văn bản gốc (align=block.original.align)
             page.insert_textbox(
                 rect,
                 block.translated_text,
                 fontsize=block.adjusted_font_size,
                 fontname=font_name,
                 color=color,
+                align=block.original.align,
             )
 
     def _get_expanded_rect(
@@ -178,6 +182,7 @@ class TextRenderer:
         original_size: float,
         min_size: float,
         font_name: str,
+        align: int = 0,
     ) -> float:
         """Tính toán cỡ chữ phù hợp nhất để văn bản fit trong bounding box.
 
@@ -189,7 +194,7 @@ class TextRenderer:
 
         # Thử chèn ở font size hiện tại
         res = temp_page.insert_textbox(
-            rect, text, fontsize=current_size, fontname=font_name
+            rect, text, fontsize=current_size, fontname=font_name, align=align
         )
         # res >= 0 nghĩa là text fit vừa
         if res >= 0:
@@ -199,7 +204,7 @@ class TextRenderer:
         while current_size > min_size:
             current_size = max(min_size, current_size - 0.5)
             res = temp_page.insert_textbox(
-                rect, text, fontsize=current_size, fontname=font_name
+                rect, text, fontsize=current_size, fontname=font_name, align=align
             )
             if res >= 0:
                 return current_size

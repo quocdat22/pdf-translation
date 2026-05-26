@@ -75,6 +75,24 @@ class TestLoadConfig:
         assert config.concurrency == 7
         assert isinstance(config.concurrency, int)
 
+    def test_cache_config(self, monkeypatch):
+        """use_cache được nạp mặc định và ghi đè qua env/cli."""
+        # 1. Mặc định là True
+        config = load_config(config_path=Path("nonexistent.toml"))
+        assert config.use_cache is True
+
+        # 2. Ghi đè bởi Env var
+        monkeypatch.setenv("PDF_TRANSLATOR_USE_CACHE", "False")
+        config = load_config(config_path=Path("nonexistent.toml"))
+        assert config.use_cache is False
+
+        # 3. Ghi đè bởi CLI override
+        config = load_config(
+            config_path=Path("nonexistent.toml"),
+            cli_overrides={"use_cache": True}
+        )
+        assert config.use_cache is True
+
 
 class TestValidateConfig:
     def _valid_config(self) -> AppConfig:
@@ -135,7 +153,7 @@ class TestFlattenToml:
     def test_full_toml(self):
         data = {
             "api": {"key": "sk-x", "base_url": "https://x.com", "model": "m"},
-            "translation": {"source_lang": "En", "target_lang": "Vi", "concurrency": 8},
+            "translation": {"source_lang": "En", "target_lang": "Vi", "concurrency": 8, "cache": False},
             "rendering": {"min_font_size": 7.0},
             "logging": {"level": "DEBUG", "log_file": "/tmp/x.log"},
         }
@@ -145,6 +163,7 @@ class TestFlattenToml:
         assert flat["model"] == "m"
         assert flat["source_lang"] == "En"
         assert flat["concurrency"] == 8
+        assert flat["use_cache"] is False
         assert flat["min_font_size"] == 7.0
         assert flat["log_level"] == "DEBUG"
         assert flat["log_file"] == "/tmp/x.log"

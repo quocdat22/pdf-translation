@@ -33,6 +33,7 @@ ENV_MAP: dict[str, str] = {
     "PDF_TRANSLATOR_FONT_PATH": "font_path",
     "PDF_TRANSLATOR_LOG_LEVEL": "log_level",
     "PDF_TRANSLATOR_LOG_FILE": "log_file",
+    "PDF_TRANSLATOR_USE_CACHE": "use_cache",
 }
 
 
@@ -165,9 +166,10 @@ def _flatten_toml(data: dict) -> dict:
         flat["model"] = api["model"]
 
     translation = data.get("translation", {})
-    for k in ("source_lang", "target_lang", "concurrency"):
+    for k in ("source_lang", "target_lang", "concurrency", "cache"):
         if k in translation:
-            flat[k] = translation[k]
+            flat_key = "use_cache" if k == "cache" else k
+            flat[flat_key] = translation[k]
 
     rendering = data.get("rendering", {})
     for k in ("min_font_size", "font_path"):
@@ -193,6 +195,7 @@ def _build_config(config_dict: dict) -> AppConfig:
     int_fields = {"concurrency"}
     float_fields = {"min_font_size"}
     opt_str_fields = {"log_file"}
+    bool_fields = {"use_cache"}
 
     for field_name in str_fields:
         if field_name in config_dict:
@@ -216,6 +219,14 @@ def _build_config(config_dict: dict) -> AppConfig:
         if field_name in config_dict:
             val = config_dict[field_name]
             kwargs[field_name] = str(val) if val is not None else None
+
+    for field_name in bool_fields:
+        if field_name in config_dict:
+            val = config_dict[field_name]
+            if isinstance(val, bool):
+                kwargs[field_name] = val
+            else:
+                kwargs[field_name] = str(val).lower() in ("true", "1", "yes", "on")
 
     # Bắt đầu từ default, rồi apply kwargs
     result = AppConfig()

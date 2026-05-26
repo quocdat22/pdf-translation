@@ -13,7 +13,7 @@ from pdf_translator.translator import Translator
 @pytest.mark.asyncio
 async def test_translator_success() -> None:
     """Test dịch thành công khi API trả về đúng định dạng ngay lần đầu."""
-    config = AppConfig(api_key="test-key")
+    config = AppConfig(api_key="test-key", use_cache=False)
     translator = Translator(config)
 
     # Mock API response
@@ -62,7 +62,7 @@ async def test_translator_success() -> None:
 @pytest.mark.asyncio
 async def test_translator_retry_success() -> None:
     """Test cơ chế retry thành công khi lần đầu trả về định dạng sai."""
-    config = AppConfig(api_key="test-key")
+    config = AppConfig(api_key="test-key", use_cache=False)
     translator = Translator(config)
 
     mock_create = AsyncMock()
@@ -115,7 +115,7 @@ async def test_translator_retry_success() -> None:
 @pytest.mark.asyncio
 async def test_translator_fallback_on_missing_blocks() -> None:
     """Test cơ chế fallback khi cả 2 lần đều trả về thiếu block (giữ nguyên gốc block thiếu)."""
-    config = AppConfig(api_key="test-key")
+    config = AppConfig(api_key="test-key", use_cache=False)
     translator = Translator(config)
 
     mock_create = AsyncMock()
@@ -161,7 +161,7 @@ async def test_translator_fallback_on_missing_blocks() -> None:
 @pytest.mark.asyncio
 async def test_translator_api_exception_retry_and_fallback() -> None:
     """Test gọi API ném ngoại lệ ở lần đầu, và thành công ở lần sau, hoặc lỗi toàn bộ."""
-    config = AppConfig(api_key="test-key")
+    config = AppConfig(api_key="test-key", use_cache=False)
     translator = Translator(config)
 
     # Thử nghiệm 1: Lần 1 ném exception, lần 2 thành công
@@ -261,4 +261,137 @@ def test_translator_parse_response_removes_table_cell_marker() -> None:
     response_no_marker = "[1] Nội dung bảng"
     parsed_map_no_marker = translator._parse_response(response_no_marker, blocks)
     assert parsed_map_no_marker[0] == "Nội dung bảng"
+
+
+@pytest.mark.asyncio
+async def test_translator_regex_bracket_inside_text() -> None:
+    """Test khả năng parse regex của translator khi văn bản dịch có chứa dấu ngoặc vuông số ở giữa câu."""
+    config = AppConfig(api_key="test-key")
+    translator = Translator(config)
+
+    blocks = [
+        TextBlock(
+            block_id=0,
+            text="First item",
+            bbox=(0, 0, 100, 20),
+            font_size=10.0,
+            font_name="helv",
+            color=0,
+        ),
+        TextBlock(
+            block_id=1,
+            text="Second item",
+            bbox=(0, 30, 100, 50),
+            font_size=10.0,
+            font_name="helv",
+            color=0,
+        ),
+    ]
+
+    response = "\n[1] Mục thứ nhất: [1] giá trị một\n[2] Mục thứ hai: [2] giá trị hai"
+    parsed_map = translator._parse_response(response, blocks)
+    assert parsed_map[0] == "Mục thứ nhất: [1] giá trị một"
+    assert parsed_map[1] == "Mục thứ hai: [2] giá trị hai"
+
+
+@pytest.mark.asyncio
+async def test_translator_complete_failure_propagates_exception() -> None:
+    """Test cơ chế propagate lỗi lên processor khi cả 2 lần gọi API dịch đều quăng ngoại lệ."""
+    config = AppConfig(api_key="test-key", use_cache=False)
+    translator = Translator(config)
+
+    mock_call_api = AsyncMock()
+    mock_call_api.side_effect = [
+        Exception("API Call 1 failed"),
+        Exception("API Call 2 failed"),
+    ]
+    translator._call_api = mock_call_api
+
+    blocks = [
+        TextBlock(
+            block_id=0,
+            text="Hello world",
+            bbox=(0, 0, 100, 20),
+            font_size=10.0,
+            font_name="helv",
+            color=0,
+        ),
+    ]
+
+    with pytest.raises(Exception, match="API Call 2 failed"):
+        await translator.translate_page(blocks)
+
+    assert mock_call_api.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_translator_with_cache() -> None:
+    """Test translator đọc bản dịch từ cache và ghi các bản dịch mới vào cache."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = Path(f.name)
+
+    try:
+        config = AppConfig(api_key="test-key", use_cache=True)
+        translator = Translator(config)
+        from pdf_translator.cache import TranslationCache
+        translator.cache = TranslationCache(db_path)
+
+        # 1. Chuẩn bị 2 block. Block 1 đã có trong cache, Block 2 thì chưa.
+        translator.cache.set("Cached text", "Bản dịch đã lưu", "English", "Vietnamese", "deepseek-chat")
+
+        blocks = [
+            TextBlock(
+                block_id=0,
+                text="Cached text",
+                bbox=(0, 0, 100, 20),
+                font_size=10.0,
+                font_name="helv",
+                color=0,
+            ),
+            TextBlock(
+                block_id=1,
+                text="Uncached text",
+                bbox=(0, 30, 100, 50),
+                font_size=10.0,
+                font_name="helv",
+                color=0,
+            ),
+        ]
+
+        # Mock API chỉ nhận được 1 block cần dịch (Uncached text)
+        mock_call_api = AsyncMock()
+        mock_call_api.return_value = "[1] Bản dịch mới"
+        translator._call_api = mock_call_api
+
+        # Thực hiện dịch trang
+        translated = await translator.translate_page(blocks)
+
+        assert len(translated) == 2
+        # Block 1 được nạp từ cache
+        assert translated[0].translated_text == "Bản dịch đã lưu"
+        # Block 2 được dịch qua API
+        assert translated[1].translated_text == "Bản dịch mới"
+
+        # Kiểm tra xem API chỉ được gọi đúng 1 lần với prompt cho 1 block
+        mock_call_api.assert_called_once()
+        called_prompt = mock_call_api.call_args[0][1]
+        assert "[1] Uncached text" in called_prompt
+        assert "Cached text" not in called_prompt
+
+        # Kiểm tra xem block 2 đã được lưu vào cache chưa
+        cached_val = translator.cache.get("Uncached text", "English", "Vietnamese", "deepseek-chat")
+        assert cached_val == "Bản dịch mới"
+
+    finally:
+        try:
+            if db_path.exists():
+                db_path.unlink()
+        except PermissionError:
+            pass
+
+
+
 

@@ -134,6 +134,12 @@ def parse_pages_string(pages_str: str) -> list[int]:
     default=None,
     help="Các trang cần dịch (1-indexed, ví dụ: 1,3,5-8). Mặc định là dịch toàn bộ.",
 )
+@click.option(
+    "--no-cache",
+    is_flag=True,
+    default=False,
+    help="Disable local translation caching.",
+)
 @click.version_option(version=__version__, prog_name="pdf-translator")
 def main(
     input_file: Path,
@@ -144,6 +150,7 @@ def main(
     log_level: str,
     concurrency: int | None,
     pages: str | None,
+    no_cache: bool,
 ) -> None:
     """Translate a PDF from English to Vietnamese, preserving the original layout.
 
@@ -164,6 +171,7 @@ def main(
         "api_key": api_key,
         "log_level": log_level,
         "concurrency": concurrency,
+        "use_cache": False if no_cache else None,
     }
     config = load_config(config_path=config_file, cli_overrides=cli_overrides)
 

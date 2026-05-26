@@ -58,11 +58,20 @@ class TextExtractor:
                     
                     block_text_parts: list[str] = []
                     span_styles: list[tuple[tuple[str, float, int, bool, bool], int]] = []
+                    align = 0
+                    font_family = "sans"
+                    text_x0, text_y0, text_x1, text_y1 = None, None, None, None
                     
                     for raw_block in cell_raw_blocks:
                         if raw_block.get("type", 0) != 0:
                             continue
                         for line in raw_block.get("lines", []):
+                            lbox = line.get("bbox", (0.0, 0.0, 0.0, 0.0))
+                            if text_x0 is None or lbox[0] < text_x0: text_x0 = lbox[0]
+                            if text_y0 is None or lbox[1] < text_y0: text_y0 = lbox[1]
+                            if text_x1 is None or lbox[2] > text_x1: text_x1 = lbox[2]
+                            if text_y1 is None or lbox[3] > text_y1: text_y1 = lbox[3]
+
                             line_spans = line.get("spans", [])
                             line_text_parts: list[str] = []
                             for span in line_spans:
@@ -122,6 +131,15 @@ class TextExtractor:
                         dominant_style, _ = style_weights.most_common(1)[0]
                         font_name, font_size, color, is_bold, is_italic = dominant_style
                         
+                        tbox = (text_x0, text_y0, text_x1, text_y1) if text_x0 is not None else cell_bbox
+                        align = self._detect_alignment(
+                            block_bbox=tbox,
+                            lines=[],
+                            page_width=page.rect.width,
+                            cell_bbox=cell_bbox,
+                        )
+                        font_family = self._classify_font_family(font_name)
+                        
                     # Tạo TextBlock cho ô bảng
                     text_block = TextBlock(
                         block_id=block_id,
@@ -134,6 +152,8 @@ class TextExtractor:
                         is_italic=is_italic,
                         page_number=page.number,
                         is_table_cell=True,
+                        align=align,
+                        font_family=font_family,
                     )
                     text_blocks.append(text_block)
                     block_id += 1
@@ -228,6 +248,13 @@ class TextExtractor:
             # Bounding box của block
             bbox = raw_block.get("bbox", (0.0, 0.0, 0.0, 0.0))
 
+            align = self._detect_alignment(
+                block_bbox=bbox,
+                lines=lines,
+                page_width=page.rect.width,
+            )
+            font_family = self._classify_font_family(font_name)
+
             text_block = TextBlock(
                 block_id=block_id,
                 text=cleaned_text,
@@ -238,6 +265,8 @@ class TextExtractor:
                 is_bold=is_bold,
                 is_italic=is_italic,
                 page_number=page.number,
+                align=align,
+                font_family=font_family,
             )
             text_blocks.append(text_block)
             block_id += 1
@@ -388,3 +417,101 @@ class TextExtractor:
                 if (intersection_area / block_area) > 0.5:
                     return True
         return False
+
+    def _detect_alignment(
+        self,
+        block_bbox: tuple[float, float, float, float],
+        lines: list,
+        page_width: float,
+        cell_bbox: tuple[float, float, float, float] | None = None,
+    ) -> int:
+        """Ước lượng định dạng căn lề của văn bản gốc (0=Trái/Đều hai bên, 1=Giữa, 2=Phải)."""
+        if cell_bbox:
+            cx0, cy0, cx1, cy1 = cell_bbox
+            bx0, by0, bx1, by1 = block_bbox
+            cell_w = cx1 - cx0
+            block_w = bx1 - bx0
+            if block_w <= 0:
+                return 0
+            left_margin = bx0 - cx0
+            right_margin = cx1 - bx1
+            
+            # Nếu căn giữa trong ô bảng
+            if abs(left_margin - right_margin) < max(2.0, cell_w * 0.05):
+                return 1
+            # Nếu căn phải trong ô bảng
+            if right_margin < 3.0 and left_margin > 5.0:
+                return 2
+            return 0
+
+        if not lines:
+            return 0
+
+        bx0, by0, bx1, by1 = block_bbox
+        block_w = bx1 - bx0
+        if block_w <= 0:
+            return 0
+
+        if len(lines) > 1:
+            left_deltas = [line.get("bbox", (0, 0, 0, 0))[0] - bx0 for line in lines]
+            right_deltas = [bx1 - line.get("bbox", (0, 0, 0, 0))[2] for line in lines]
+
+            # 1. Kiểm tra căn đều 2 bên (Justify) trước tiên.
+            # Định nghĩa: Tất cả dòng (trừ dòng cuối) đều sát cả hai lề trái và phải.
+            # Chỉ áp dụng cho block có độ rộng đáng kể (block_w > 50.0).
+            body_lines = lines[:-1]
+            if block_w > 50.0 and len(body_lines) >= 1:
+                justify_threshold = 3.0
+                left_flush = all((line.get("bbox", (0, 0, 0, 0))[0] - bx0) < justify_threshold for line in body_lines)
+                right_flush = all((bx1 - line.get("bbox", (0, 0, 0, 0))[2]) < justify_threshold for line in body_lines)
+                if left_flush and right_flush:
+                    return 0  # Căn đều hai bên -> Fallback về căn trái (LEFT=0)
+
+            max_left_delta = max(left_deltas[:-1]) if len(left_deltas) > 1 else left_deltas[0]
+            max_right_delta = max(right_deltas[:-1]) if len(right_deltas) > 1 else right_deltas[0]
+
+            # 2. Kiểm tra căn giữa (Center): khoảng cách trung tâm các dòng tới trung tâm block
+            center_block = (bx0 + bx1) / 2
+            center_deltas = [
+                abs((l.get("bbox", (0, 0, 0, 0))[0] + l.get("bbox", (0, 0, 0, 0))[2]) / 2 - center_block)
+                for l in lines
+            ]
+            max_center_delta = max(center_deltas)
+
+            # Nới rộng ngưỡng center từ 5% lên 8% của block width để nhận diện tốt hơn
+            if max_center_delta < block_w * 0.08:
+                return 1
+
+            # 3. Kiểm tra căn phải (Right)
+            if max_right_delta < max(3.0, block_w * 0.05):
+                return 2
+
+            return 0
+        else:
+            # 1 dòng duy nhất
+            line = lines[0]
+            lx0, ly0, lx1, ly1 = line.get("bbox", (0, 0, 0, 0))
+            line_w = lx1 - lx0
+            if line_w <= 0:
+                return 0
+
+            # Căn phải: nằm gần biên phải trang
+            if page_width - lx1 < 70.0 and lx0 > page_width / 2:
+                return 2
+
+            # Căn giữa: trung tâm dòng nằm gần trung tâm trang và chiều rộng không phủ hết trang
+            page_center = page_width / 2
+            line_center = (lx0 + lx1) / 2
+            if abs(line_center - page_center) < 20.0 and line_w < page_width * 0.6:
+                return 1
+
+            return 0
+
+    def _classify_font_family(self, font_name: str) -> str:
+        """Phân loại họ font chữ từ tên font (sans, serif, mono)."""
+        name_lower = font_name.lower()
+        if any(x in name_lower for x in ["courier", "mono", "consolas", "code", "fixed", "tele"]):
+            return "mono"
+        if any(x in name_lower for x in ["times", "serif", "georgia", "garamond", "cambria", "minion"]):
+            return "serif"
+        return "sans"

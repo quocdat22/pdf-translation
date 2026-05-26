@@ -39,6 +39,8 @@ class TextBlock:
     is_italic: bool = False
     page_number: int = 0
     is_table_cell: bool = False
+    align: int = 0
+    font_family: str = "sans"
 
     @property
     def width(self) -> float:
@@ -137,3 +139,4 @@ class AppConfig:
     font_path: str = ""
     log_level: str = "INFO"
     log_file: str | None = None
+    use_cache: bool = True

@@ -35,6 +35,7 @@ plan.md
 /fonts/
 files/
 scratch/
+.translation_cache.db
 
 # PDF output files (test artifacts)
 *_translated.pdf

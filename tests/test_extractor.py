@@ -1,7 +1,4 @@
-"""Unit tests cho TextExtractor."""
-
-from __future__ import annotations
-
+from unittest.mock import MagicMock
 import fitz
 import pytest
 
@@ -36,6 +33,9 @@ class MockPage:
         self.blocks_data = blocks_data
         self.number = number
         self.tables_list = tables or []
+        self.rect = MagicMock()
+        self.rect.width = 600
+        self.rect.height = 800
 
     def get_text(self, opt: str, clip: tuple[float, float, float, float] | None = None) -> dict:
         if opt == "dict":
@@ -379,4 +379,67 @@ def test_should_skip_block_math() -> None:
     assert extractor._should_skip_block("Let x = 1", ["Helvetica"]) is False
     assert extractor._should_skip_block("The temperature is T > 30°C", ["Helvetica"]) is False
     assert extractor._should_skip_block("USD 25") is False
+
+
+def test_extractor_detect_alignment_and_font_family() -> None:
+    """Test tính năng nhận diện alignment và phân loại font family."""
+    extractor = TextExtractor()
+
+    # 1. Test phân loại font family
+    assert extractor._classify_font_family("TimesNewRoman-Bold") == "serif"
+    assert extractor._classify_font_family("LiberationSerif") == "serif"
+    assert extractor._classify_font_family("Courier-Oblique") == "mono"
+    assert extractor._classify_font_family("DejaVuSansMono") == "mono"
+    assert extractor._classify_font_family("Helvetica") == "sans"
+    assert extractor._classify_font_family("NotoSans-Regular") == "sans"
+
+    # 2. Test nhận diện alignment trong ô bảng
+    # Center trong ô
+    cell_bbox = (100, 100, 200, 150)  # width = 100, center = 150
+    text_bbox_center = (130, 110, 170, 140)  # center = 150, margins = (30, 30)
+    assert extractor._detect_alignment(text_bbox_center, [], 600, cell_bbox) == 1
+
+    # Right trong ô
+    text_bbox_right = (160, 110, 198, 140)  # right margin = 2
+    assert extractor._detect_alignment(text_bbox_right, [], 600, cell_bbox) == 2
+
+    # Left trong ô
+    text_bbox_left = (102, 110, 140, 140)  # left margin = 2, right margin = 60
+    assert extractor._detect_alignment(text_bbox_left, [], 600, cell_bbox) == 0
+
+    # 3. Test nhận diện alignment cho block nhiều dòng
+    # Căn giữa (center)
+    lines_center = [
+        {"bbox": (130, 100, 170, 120)},
+        {"bbox": (120, 120, 180, 140)},
+    ]
+    block_bbox_center = (120, 100, 180, 140)  # width = 60, center = 150
+    assert extractor._detect_alignment(block_bbox_center, lines_center, 600) == 1
+
+    # Căn phải (right)
+    lines_right = [
+        {"bbox": (140, 100, 180, 120)},
+        {"bbox": (120, 120, 180, 140)},
+    ]
+    block_bbox_right = (120, 100, 180, 140)  # lines end at 180
+    assert extractor._detect_alignment(block_bbox_right, lines_right, 600) == 2
+
+    # Căn đều hai bên (justify) -> fallback về 0 (Left)
+    lines_justify = [
+        {"bbox": (100.0, 100.0, 300.0, 120.0)},
+        {"bbox": (100.0, 120.0, 300.0, 140.0)},
+        {"bbox": (100.0, 140.0, 200.0, 160.0)},  # dòng cuối thụt lề
+    ]
+    block_bbox_justify = (100.0, 100.0, 300.0, 160.0)  # width = 200.0
+    assert extractor._detect_alignment(block_bbox_justify, lines_justify, 600) == 0
+
+    # 4. Test nhận diện alignment cho block 1 dòng
+    # Căn phải sát lề trang
+    line_page_right = [{"bbox": (500, 100, 580, 120)}]
+    assert extractor._detect_alignment((500, 100, 580, 120), line_page_right, 600) == 2
+
+    # Căn giữa trang
+    line_page_center = [{"bbox": (250, 100, 350, 120)}]
+    assert extractor._detect_alignment((250, 100, 350, 120), line_page_center, 600) == 1
+
 

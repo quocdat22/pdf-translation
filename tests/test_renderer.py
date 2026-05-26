@@ -209,3 +209,125 @@ def test_renderer_table_cell_does_not_call_expand(monkeypatch) -> None:
     assert called is False, "_get_expanded_rect should not be called for table cells"
     doc.close()
 
+
+def test_renderer_redaction_transparency_and_parameters(monkeypatch) -> None:
+    """Test renderer thực hiện che chữ trong suốt và truyền đúng các flag để giữ hình ảnh/nét vẽ."""
+    fm = FontManager()
+    renderer = TextRenderer(fm)
+
+    doc = fitz.open()
+    page = doc.new_page()
+
+    original_block = TextBlock(
+        block_id=0,
+        text="Normal Text Block",
+        bbox=(50, 50, 200, 80),
+        font_size=10.0,
+        font_name="Helvetica",
+        color=(0, 0, 0),
+        is_bold=False,
+        is_italic=False,
+        page_number=0,
+        is_table_cell=False,
+    )
+
+    translated_block = TranslatedBlock(
+        original=original_block,
+        translated_text="Text đã dịch",
+        adjusted_font_size=10.0,
+    )
+
+    # Mock add_redact_annot để kiểm tra fill=False
+    add_redact_called = []
+    original_add_redact_annot = page.add_redact_annot
+    def mock_add_redact_annot(rect, fill=None, **kwargs):
+        add_redact_called.append((rect, fill))
+        return original_add_redact_annot(rect, fill=fill, **kwargs)
+
+    # Mock apply_redactions để kiểm tra tham số images và graphics
+    apply_redacts_called = []
+    original_apply_redactions = page.apply_redactions
+    def mock_apply_redactions(images=None, graphics=None, **kwargs):
+        apply_redacts_called.append((images, graphics))
+        return original_apply_redactions(images=images, graphics=graphics, **kwargs)
+
+    monkeypatch.setattr(page, "add_redact_annot", mock_add_redact_annot)
+    monkeypatch.setattr(page, "apply_redactions", mock_apply_redactions)
+
+    renderer.render_page(page, [translated_block])
+
+    # Kiểm tra add_redact_annot được gọi với fill=False cho block thường
+    assert len(add_redact_called) == 1
+    assert add_redact_called[0][1] is False
+
+    # Kiểm tra apply_redactions được gọi với đúng flag bảo toàn
+    assert len(apply_redacts_called) == 1
+    assert apply_redacts_called[0][0] == fitz.PDF_REDACT_IMAGE_NONE
+    assert apply_redacts_called[0][1] == fitz.PDF_REDACT_LINE_ART_NONE
+
+    doc.close()
+
+
+def test_renderer_alignment_and_font_family(monkeypatch) -> None:
+    """Test renderer thực hiện render đúng căn lề (align) và họ font (font_family)."""
+    fm = FontManager()
+    renderer = TextRenderer(fm)
+
+    doc = fitz.open()
+    page = doc.new_page()
+
+    # Căn lề phải (align=2), Serif font
+    original_block = TextBlock(
+        block_id=0,
+        text="Serif Text Block",
+        bbox=(50, 50, 200, 80),
+        font_size=10.0,
+        font_name="TimesNewRoman",
+        color=(0, 0, 0),
+        is_bold=True,
+        is_italic=False,
+        page_number=0,
+        is_table_cell=False,
+        align=2,
+        font_family="serif",
+    )
+
+    translated_block = TranslatedBlock(
+        original=original_block,
+        translated_text="Text dịch Serif căn phải",
+        adjusted_font_size=10.0,
+    )
+
+    # Mock insert_textbox để kiểm tra align và fontname
+    insert_textbox_called = []
+    original_insert_textbox = page.insert_textbox
+    def mock_insert_textbox(rect, text, fontsize=None, fontname=None, color=None, align=0, **kwargs):
+        insert_textbox_called.append((rect, text, fontsize, fontname, color, align))
+        return original_insert_textbox(rect, text, fontsize=fontsize, fontname=fontname, color=color, align=align, **kwargs)
+
+    # Mock register_font trong font_manager để xem family nào được đăng ký
+    register_font_called = []
+    original_register_font = fm.register_font
+    def mock_register_font(page_arg, family="sans", is_bold=False, is_italic=False):
+        register_font_called.append((family, is_bold, is_italic))
+        return original_register_font(page_arg, family=family, is_bold=is_bold, is_italic=is_italic)
+
+    monkeypatch.setattr(page, "insert_textbox", mock_insert_textbox)
+    monkeypatch.setattr(fm, "register_font", mock_register_font)
+
+    renderer.render_page(page, [translated_block])
+
+    # Kiểm tra xem register_font được gọi với họ serif
+    assert len(register_font_called) > 0
+    # Cả temp page và real page đều được đăng ký
+    assert any(family == "serif" for family, _, _ in register_font_called)
+
+    # Kiểm tra xem insert_textbox nhận được align=2 và fontname tương ứng SerifBold
+    assert len(insert_textbox_called) == 1
+    assert insert_textbox_called[0][3] in ("TimesNewRomanBold", "NotoSansBold")
+    assert insert_textbox_called[0][5] == 2  # align = 2 (Right)
+
+    doc.close()
+
+
+

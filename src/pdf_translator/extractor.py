@@ -460,17 +460,32 @@ class TextExtractor:
             # Định nghĩa: Tất cả dòng (trừ dòng cuối) đều sát cả hai lề trái và phải.
             # Chỉ áp dụng cho block có độ rộng đáng kể (block_w > 50.0).
             body_lines = lines[:-1]
+            justify_threshold = 3.0
             if block_w > 50.0 and len(body_lines) >= 1:
-                justify_threshold = 3.0
                 left_flush = all((line.get("bbox", (0, 0, 0, 0))[0] - bx0) < justify_threshold for line in body_lines)
                 right_flush = all((bx1 - line.get("bbox", (0, 0, 0, 0))[2]) < justify_threshold for line in body_lines)
                 if left_flush and right_flush:
                     return 0  # Căn đều hai bên -> Fallback về căn trái (LEFT=0)
 
+            # 2. Kiểm tra căn trái (Left-flush): tất cả dòng bắt đầu gần mép trái block
+            left_threshold = min(12.0, block_w * 0.10)  # Cho phép indent nhẹ (bullet, hanging indent) nhưng giới hạn theo block width
+            body_left_flush = all(
+                (line.get("bbox", (0, 0, 0, 0))[0] - bx0) < left_threshold 
+                for line in lines
+            )
+            if body_left_flush:
+                # Nếu tất cả dòng body flush left nhưng KHÔNG ĐỒNG THỜI flush right -> LEFT
+                body_right_flush = all(
+                    (bx1 - line.get("bbox", (0, 0, 0, 0))[2]) < justify_threshold 
+                    for line in body_lines
+                )
+                if not body_right_flush:
+                    return 0  # LEFT
+
             max_left_delta = max(left_deltas[:-1]) if len(left_deltas) > 1 else left_deltas[0]
             max_right_delta = max(right_deltas[:-1]) if len(right_deltas) > 1 else right_deltas[0]
 
-            # 2. Kiểm tra căn giữa (Center): khoảng cách trung tâm các dòng tới trung tâm block
+            # 3. Kiểm tra căn giữa (Center): khoảng cách trung tâm các dòng tới trung tâm block
             center_block = (bx0 + bx1) / 2
             center_deltas = [
                 abs((l.get("bbox", (0, 0, 0, 0))[0] + l.get("bbox", (0, 0, 0, 0))[2]) / 2 - center_block)
@@ -478,11 +493,11 @@ class TextExtractor:
             ]
             max_center_delta = max(center_deltas)
 
-            # Nới rộng ngưỡng center từ 5% lên 8% của block width để nhận diện tốt hơn
-            if max_center_delta < block_w * 0.08:
+            # Thu hẹp ngưỡng center từ 8% xuống 6% để tránh nhận diện nhầm căn giữa
+            if max_center_delta < block_w * 0.06:
                 return 1
 
-            # 3. Kiểm tra căn phải (Right)
+            # 4. Kiểm tra căn phải (Right)
             if max_right_delta < max(3.0, block_w * 0.05):
                 return 2
 

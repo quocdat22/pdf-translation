@@ -442,4 +442,57 @@ def test_extractor_detect_alignment_and_font_family() -> None:
     line_page_center = [{"bbox": (250, 100, 350, 120)}]
     assert extractor._detect_alignment((250, 100, 350, 120), line_page_center, 600) == 1
 
+    # 5. Test các trường hợp đặc biệt đợt cải thiện căn lề 2
+    # 5.1. Test LEFT flush override RIGHT (Bug 1 của book1.pdf)
+    # 8 dòng, tất cả left_deltas = 0 (perfect flush left), right_deltas dao động nhẹ (max_right_delta = 16.9 < block_w * 0.05 = 21.5)
+    # block_w = 430.0
+    lines_bug1 = [
+        {"bbox": (100.0, 100.0, 513.1, 115.0)}, # L0: left=100.0, right=513.1 -> right_delta = 16.9
+        {"bbox": (100.0, 115.0, 520.6, 130.0)}, # L1: right_delta = 9.4
+        {"bbox": (100.0, 130.0, 520.9, 145.0)}, # L2: right_delta = 9.1
+        {"bbox": (100.0, 145.0, 528.3, 160.0)}, # L3: right_delta = 1.7
+        {"bbox": (100.0, 160.0, 518.2, 175.0)}, # L4: right_delta = 11.8
+        {"bbox": (100.0, 175.0, 530.0, 190.0)}, # L5: right_delta = 0.0
+        {"bbox": (100.0, 190.0, 518.5, 205.0)}, # L6: right_delta = 11.5
+        {"bbox": (100.0, 205.0, 460.0, 220.0)}, # L7 (dòng cuối): right_delta = 70.0
+    ]
+    block_bbox_bug1 = (100.0, 100.0, 530.0, 220.0) # width = 430.0
+    assert extractor._detect_alignment(block_bbox_bug1, lines_bug1, 600) == 0 # Phải là LEFT (0)
+
+    # 5.2. Test LEFT flush override CENTER trong block hẹp (Bug 2 của book1.pdf)
+    # 9 dòng, left_deltas = 0, block_w = 142.6
+    # max_center_delta của body lines < block_w * 0.08 (11.4)
+    lines_bug2 = [
+        {"bbox": (100.0, 100.0, 224.7, 115.0)},
+        {"bbox": (100.0, 115.0, 230.3, 130.0)},
+        {"bbox": (100.0, 130.0, 238.3, 145.0)},
+        {"bbox": (100.0, 145.0, 221.3, 160.0)},
+        {"bbox": (100.0, 160.0, 234.4, 175.0)},
+        {"bbox": (100.0, 175.0, 238.7, 190.0)},
+        {"bbox": (100.0, 190.0, 242.6, 205.0)},
+        {"bbox": (100.0, 205.0, 234.9, 220.0)},
+        {"bbox": (100.0, 220.0, 230.7, 235.0)},
+    ]
+    block_bbox_bug2 = (100.0, 100.0, 242.6, 235.0) # width = 142.6
+    assert extractor._detect_alignment(block_bbox_bug2, lines_bug2, 600) == 0 # Phải là LEFT (0)
+
+    # 5.3. Test bullet point indent (Bug 3 của book1.pdf)
+    # 2 dòng: L0 left_delta = 0, L1 left_delta = 9.0 (thụt lề sau bullet), block_w = 160.0
+    lines_bug3 = [
+        {"bbox": (100.0, 100.0, 256.9, 120.0)}, # L0: left=100.0, right=256.9 -> left_delta=0, right_delta=3.1
+        {"bbox": (109.0, 120.0, 260.0, 140.0)}, # L1: left=109.0, right=260.0 -> left_delta=9.0, right_delta=0.0
+    ]
+    block_bbox_bug3 = (100.0, 100.0, 260.0, 140.0) # width = 160.0
+    assert extractor._detect_alignment(block_bbox_bug3, lines_bug3, 600) == 0 # Phải là LEFT (0)
+
+    # 5.4. Test right-aligned vẫn hoạt động bình thường (ragged left, flush right)
+    # 3 dòng, left_deltas = [20.0, 10.0, 0.0], right_deltas = [0.0, 0.0, 0.0]
+    lines_right_align = [
+        {"bbox": (120.0, 100.0, 200.0, 120.0)}, # right = 200
+        {"bbox": (110.0, 120.0, 200.0, 140.0)}, # right = 200
+        {"bbox": (100.0, 140.0, 200.0, 160.0)}, # right = 200
+    ]
+    block_bbox_right_align = (100.0, 100.0, 200.0, 160.0) # width = 100.0
+    assert extractor._detect_alignment(block_bbox_right_align, lines_right_align, 600) == 2 # Phải là RIGHT (2)
+
 

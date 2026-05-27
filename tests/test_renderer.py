@@ -624,3 +624,119 @@ def test_renderer_expand_rect_symmetric_centered() -> None:
     assert expanded.x1 == 348.0
     assert expanded.y0 == 50.0
     assert expanded.y1 == 70.0
+
+
+def test_renderer_expand_rect_multiline() -> None:
+    """Test giới hạn mở rộng 20% chiều rộng ngang và không fallback dọc cho block multi-line."""
+    fm = FontManager()
+    renderer = TextRenderer(fm)
+
+    dummy_left = TranslatedBlock(
+        original=TextBlock(
+            block_id=99,
+            text="Left Margin Block",
+            bbox=(50.0, 200.0, 100.0, 220.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+        ),
+        translated_text="Lề",
+        adjusted_font_size=10.0,
+    )
+    dummy_right = TranslatedBlock(
+        original=TextBlock(
+            block_id=100,
+            text="Right Margin Block",
+            bbox=(400.0, 200.0, 450.0, 220.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+        ),
+        translated_text="Lề",
+        adjusted_font_size=10.0,
+    )
+
+    # 1. Align = 0 (Trái, mở rộng sang phải): Rộng gốc = 100, mở rộng 20% tối đa là 20.
+    cur_block_0 = TranslatedBlock(
+        original=TextBlock(
+            block_id=0,
+            text="Line 1\nLine 2",
+            bbox=(50.0, 50.0, 150.0, 70.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+            align=0,
+            line_count=2,
+        ),
+        translated_text="Dịch",
+        adjusted_font_size=10.0,
+    )
+    all_blocks = [cur_block_0, dummy_left, dummy_right]
+    page_rect = fitz.Rect(0, 0, 500, 500)
+
+    expanded_0 = renderer._get_expanded_rect(
+        cur_block_0.original.bbox,
+        cur_block_0.original.font_size,
+        all_blocks=all_blocks,
+        current_block=cur_block_0,
+        page_rect=page_rect,
+    )
+    # Rộng tối đa 120.0 (150 + 100 * 0.20)
+    assert expanded_0.x0 == 50.0
+    assert expanded_0.x1 == 170.0
+    assert expanded_0.y1 == 70.0  # Không fallback dọc
+
+    # 2. Align = 1 (Giữa, đối xứng): Rộng gốc = 100, mở rộng 20% tối đa (10% mỗi bên).
+    cur_block_1 = TranslatedBlock(
+        original=TextBlock(
+            block_id=0,
+            text="Line 1\nLine 2",
+            bbox=(200.0, 50.0, 300.0, 70.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+            align=1,
+            line_count=2,
+        ),
+        translated_text="Dịch",
+        adjusted_font_size=10.0,
+    )
+    expanded_1 = renderer._get_expanded_rect(
+        cur_block_1.original.bbox,
+        cur_block_1.original.font_size,
+        all_blocks=[cur_block_1, dummy_left, dummy_right],
+        current_block=cur_block_1,
+        page_rect=page_rect,
+    )
+    # Rộng tối đa 120.0 (10% mỗi bên: 200 - 10 = 190.0, 300 + 10 = 310.0)
+    assert expanded_1.x0 == 190.0
+    assert expanded_1.x1 == 310.0
+    assert expanded_1.y1 == 70.0
+
+    # 3. Align = 2 (Phải, mở rộng sang trái): Rộng gốc = 100, mở rộng 20% tối đa.
+    cur_block_2 = TranslatedBlock(
+        original=TextBlock(
+            block_id=0,
+            text="Line 1\nLine 2",
+            bbox=(150.0, 50.0, 250.0, 70.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+            align=2,
+            line_count=2,
+        ),
+        translated_text="Dịch",
+        adjusted_font_size=10.0,
+    )
+    expanded_2 = renderer._get_expanded_rect(
+        cur_block_2.original.bbox,
+        cur_block_2.original.font_size,
+        all_blocks=[cur_block_2, dummy_left, dummy_right],
+        current_block=cur_block_2,
+        page_rect=page_rect,
+    )
+    # Rộng tối đa 120.0 (250 - 120 = 130.0)
+    assert expanded_2.x0 == 130.0
+    assert expanded_2.x1 == 250.0
+    assert expanded_2.y1 == 70.0
+

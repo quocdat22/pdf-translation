@@ -28,6 +28,7 @@ class TestTextBlock:
         assert block.is_italic is False
         assert block.page_number == 0
         assert block.is_table_cell is False
+        assert block.line_count == 1
 
     def test_table_cell_creation(self):
         block = TextBlock(

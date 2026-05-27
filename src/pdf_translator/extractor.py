@@ -176,100 +176,150 @@ class TextExtractor:
             if not lines:
                 continue
 
-            # Gộp toàn bộ spans của block thành nội dung text duy nhất
-            # Thu thập tất cả các style (font, size, color, flags) từ spans để tìm style dominant
-            block_text_parts: list[str] = []
-            span_styles: list[tuple[tuple[str, float, int, bool, bool], int]] = []
+            # Kiểm tra xem có nên chia nhỏ block thành các block độc lập cho từng dòng hay không.
+            # Ta chia nếu block có nhiều hơn 1 dòng, và thuộc các trường hợp:
+            # 1. Có bất kỳ dòng nào chứa địa chỉ email.
+            # 2. Hoặc block được căn giữa (align=1) và có các dòng chênh lệch độ rộng lớn (không phải paragraph).
+            should_split = False
+            if len(lines) > 1:
+                # 1. Kiểm tra nếu có bất kỳ dòng nào chứa email
+                has_email = False
+                for line in lines:
+                    line_spans = line.get("spans", [])
+                    line_text = "".join(span.get("text", "") for span in line_spans)
+                    if re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", line_text):
+                        has_email = True
+                        break
+                
+                if has_email:
+                    should_split = True
+                else:
+                    # 2. Hoặc nếu block căn giữa (align == 1) và có các dòng chênh lệch độ rộng lớn
+                    align_temp = self._detect_alignment(block_bbox=bbox, lines=lines, page_width=page.rect.width)
+                    if align_temp == 1:
+                        line_widths = []
+                        for line in lines:
+                            lbox = line.get("bbox", (0.0, 0.0, 0.0, 0.0))
+                            if lbox != (0.0, 0.0, 0.0, 0.0):
+                                line_widths.append(lbox[2] - lbox[0])
+                        if line_widths:
+                            max_w = max(line_widths)
+                            if max_w > 0:
+                                for w in line_widths[:-1]:
+                                    if w / max_w < 0.7:
+                                        should_split = True
+                                        break
 
-            for line in lines:
-                line_spans = line.get("spans", [])
-                line_text_parts: list[str] = []
-                for span in line_spans:
-                    text = span.get("text", "")
-                    if not text:
-                        continue
+            # Danh sách các nhóm dòng cần xử lý (mỗi nhóm tạo thành 1 TextBlock)
+            lines_to_process: list[list[dict]] = []
+            if should_split:
+                # Mỗi dòng là 1 nhóm riêng
+                for line in lines:
+                    lines_to_process.append([line])
+            else:
+                # Toàn bộ block là 1 nhóm
+                lines_to_process.append(lines)
 
-                    line_text_parts.append(text)
+            # Xử lý từng nhóm dòng
+            for line_group in lines_to_process:
+                # Tính bbox của nhóm dòng
+                group_x0, group_y0, group_x1, group_y1 = None, None, None, None
+                for line in line_group:
+                    lbox = line.get("bbox", (0.0, 0.0, 0.0, 0.0))
+                    if lbox == (0.0, 0.0, 0.0, 0.0):
+                        lbox = bbox
+                    lx0, ly0, lx1, ly1 = lbox
+                    if group_x0 is None or lx0 < group_x0: group_x0 = lx0
+                    if group_y0 is None or ly0 < group_y0: group_y0 = ly0
+                    if group_x1 is None or lx1 > group_x1: group_x1 = lx1
+                    if group_y1 is None or ly1 > group_y1: group_y1 = ly1
+                
+                if group_x0 is None:
+                    continue
+                group_bbox = (group_x0, group_y0, group_x1, group_y1)
 
-                    # Thu thập metadata của span phục vụ xác định dominant style
-                    # Cân trọng số theo độ dài của text trong span
-                    font_name = span.get("font", "Helvetica")
-                    font_size = span.get("size", 10.0)
-                    color = span.get("color", 0)  # sRGB int
-                    flags = span.get("flags", 0)
+                block_text_parts: list[str] = []
+                span_styles: list[tuple[tuple[str, float, int, bool, bool], int]] = []
 
-                    is_bold = bool(flags & 16) or "bold" in font_name.lower()
-                    is_italic = bool(flags & 2) or "italic" in font_name.lower() or "oblique" in font_name.lower()
+                for line in line_group:
+                    line_spans = line.get("spans", [])
+                    line_text_parts: list[str] = []
+                    for span in line_spans:
+                        text = span.get("text", "")
+                        if not text:
+                            continue
+                        line_text_parts.append(text)
+                        
+                        font_name = span.get("font", "Helvetica")
+                        font_size = span.get("size", 10.0)
+                        color = span.get("color", 0)
+                        flags = span.get("flags", 0)
+                        
+                        is_bold = bool(flags & 16) or "bold" in font_name.lower()
+                        is_italic = bool(flags & 2) or "italic" in font_name.lower() or "oblique" in font_name.lower()
+                        
+                        style_key = (font_name, font_size, color, is_bold, is_italic)
+                        span_styles.append((style_key, len(text)))
 
-                    style_key = (font_name, font_size, color, is_bold, is_italic)
-                    # Trọng số là độ dài của chuỗi
-                    span_styles.append((style_key, len(text)))
+                    if line_text_parts:
+                        line_text = "".join(line_text_parts)
+                        block_text_parts.append(line_text)
 
-                if line_text_parts:
-                    line_text = "".join(line_text_parts)
-                    block_text_parts.append(line_text)
+                if not block_text_parts:
+                    continue
 
-            if not block_text_parts:
-                continue
+                # Bỏ qua nếu block gốc là block viết dọc hoặc xoay dọc
+                if self._is_block_vertical(raw_block):
+                    logger.debug(
+                        f"Bỏ qua block {block_id} trên trang {page.number} (phát hiện text dọc hoặc xoay dọc)"
+                    )
+                    continue
 
-            # Bỏ qua nếu block là block viết dọc hoặc xoay dọc (không nằm ngang bình thường)
-            if self._is_block_vertical(raw_block):
-                logger.debug(
-                    f"Bỏ qua block {block_id} trên trang {page.number} (phát hiện text dọc hoặc xoay dọc)"
+                # Gộp các dòng bằng khoảng trắng
+                merged_text = " ".join(block_text_parts)
+                cleaned_text = re.sub(r"\s+", " ", merged_text).strip()
+
+                # Kiểm tra xem block có cần dịch hay không
+                block_font_names = [style[0][0] for style in span_styles]
+                if self._should_skip_block(cleaned_text, block_font_names):
+                    logger.debug(
+                        f"Bỏ qua block {block_id} trên trang {page.number}: '{cleaned_text}'"
+                    )
+                    continue
+
+                if not span_styles:
+                    continue
+
+                style_weights: Counter[tuple[str, float, int, bool, bool]] = Counter()
+                for style_key, weight in span_styles:
+                    style_weights[style_key] += weight
+
+                dominant_style, _ = style_weights.most_common(1)[0]
+                font_name, font_size, color, is_bold, is_italic = dominant_style
+
+                align = self._detect_alignment(
+                    block_bbox=group_bbox,
+                    lines=line_group,
+                    page_width=page.rect.width,
                 )
-                continue
+                font_family = self._classify_font_family(font_name)
 
-            # Gộp các dòng lại bằng khoảng trắng để tránh ngắt từ làm LLM hiểu sai ngữ cảnh
-            merged_text = " ".join(block_text_parts)
-
-            # Làm sạch khoảng trắng dư thừa
-            cleaned_text = re.sub(r"\s+", " ", merged_text).strip()
-
-            # Kiểm tra xem block có cần dịch hay không
-            block_font_names = [style[0][0] for style in span_styles]
-            if self._should_skip_block(cleaned_text, block_font_names):
-                logger.debug(
-                    f"Bỏ qua block {block_id} trên trang {page.number}: '{cleaned_text}'"
+                text_block = TextBlock(
+                    block_id=block_id,
+                    text=cleaned_text,
+                    bbox=group_bbox,
+                    font_size=font_size,
+                    font_name=font_name,
+                    color=color,
+                    is_bold=is_bold,
+                    is_italic=is_italic,
+                    page_number=page.number,
+                    align=align,
+                    font_family=font_family,
+                    line_count=len(line_group),
                 )
-                continue
-
-            # Xác định dominant style
-            if not span_styles:
-                continue
-
-            # Tính tổng trọng số (độ dài ký tự) cho từng style
-            style_weights: Counter[tuple[str, float, int, bool, bool]] = Counter()
-            for style_key, weight in span_styles:
-                style_weights[style_key] += weight
-
-            dominant_style, _ = style_weights.most_common(1)[0]
-            font_name, font_size, color, is_bold, is_italic = dominant_style
-
-            # Bounding box của block
-            bbox = raw_block.get("bbox", (0.0, 0.0, 0.0, 0.0))
-
-            align = self._detect_alignment(
-                block_bbox=bbox,
-                lines=lines,
-                page_width=page.rect.width,
-            )
-            font_family = self._classify_font_family(font_name)
-
-            text_block = TextBlock(
-                block_id=block_id,
-                text=cleaned_text,
-                bbox=bbox,
-                font_size=font_size,
-                font_name=font_name,
-                color=color,
-                is_bold=is_bold,
-                is_italic=is_italic,
-                page_number=page.number,
-                align=align,
-                font_family=font_family,
-            )
-            text_blocks.append(text_block)
-            block_id += 1
+                text_blocks.append(text_block)
+                block_id += 1
 
         return text_blocks
 

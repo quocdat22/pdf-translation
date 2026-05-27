@@ -211,6 +211,7 @@ class TextRenderer:
 
         # Lấy thông số căn lề từ current_block
         align = current_block.original.align if current_block and current_block.original else 0
+        line_count = getattr(current_block.original, "line_count", 1) if current_block and current_block.original else 1
 
         # Mép trang tuyệt đối
         page_x0 = page_rect.x0
@@ -272,7 +273,12 @@ class TextRenderer:
             max_left = max(left_boundaries)
             # Giới hạn bên trái mới, có chừa đệm cushion
             new_x0 = max_left + cushion
-            if new_x0 < x0:
+            if line_count >= 2:
+                # Giới hạn mở rộng ngang tối đa 20% chiều rộng gốc
+                new_x0 = max(new_x0, x0 - w * 0.20)
+                new_x0 = min(x0, new_x0)
+                return fitz.Rect(new_x0, y0, x1, y1)
+            elif new_x0 < x0:
                 # Thành công mở rộng sang trái
                 return fitz.Rect(new_x0, y0, x1, y1)
         elif align == 1:
@@ -299,7 +305,11 @@ class TextRenderer:
 
             # 3. Chọn lượng mở rộng đối xứng nhỏ nhất giữa 2 bên
             symmetric_dx = min(max_left_expansion, max_right_expansion)
-            if symmetric_dx > 0.0:
+            if line_count >= 2:
+                # Giới hạn đối xứng 10% mỗi bên (tổng 20% chiều rộng gốc)
+                symmetric_dx = min(symmetric_dx, w * 0.10)
+                return fitz.Rect(x0 - symmetric_dx, y0, x1 + symmetric_dx, y1)
+            elif symmetric_dx > 0.0:
                 return fitz.Rect(x0 - symmetric_dx, y0, x1 + symmetric_dx, y1)
         else:
             # Hướng ngang: Mở rộng sang PHẢI
@@ -316,7 +326,12 @@ class TextRenderer:
             min_right = min(right_boundaries)
             # Giới hạn bên phải mới, có chừa đệm cushion
             new_x1 = min_right - cushion
-            if new_x1 > x1:
+            if line_count >= 2:
+                # Giới hạn mở rộng ngang tối đa 20% chiều rộng gốc
+                new_x1 = min(new_x1, x1 + w * 0.20)
+                new_x1 = max(x1, new_x1)
+                return fitz.Rect(x0, y0, new_x1, y1)
+            elif new_x1 > x1:
                 # Thành công mở rộng sang phải
                 return fitz.Rect(x0, y0, new_x1, y1)
 

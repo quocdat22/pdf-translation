@@ -496,3 +496,72 @@ def test_extractor_detect_alignment_and_font_family() -> None:
     assert extractor._detect_alignment(block_bbox_right_align, lines_right_align, 600) == 2 # Phải là RIGHT (2)
 
 
+def test_extractor_split_non_paragraph_block() -> None:
+    """Test tính năng tự động chia nhỏ block thành các dòng độc lập khi block không phải paragraph (như tên tác giả/email)."""
+    # 1. Mock block chứa tên và email (nên bị chia đôi)
+    split_block_data = {
+        "type": 0,
+        "bbox": (150.0, 100.0, 300.0, 140.0), # width = 150.0
+        "lines": [
+            {
+                "bbox": (200.0, 100.0, 270.0, 120.0), # width = 70.0 (70/150 = 46.7% < 70% -> split)
+                "wmode": 0,
+                "spans": [{"text": "Author Name", "size": 10.0, "font": "Helvetica", "color": 0, "flags": 0}],
+            },
+            {
+                "bbox": (150.0, 120.0, 300.0, 140.0), # line cuối (email)
+                "wmode": 0,
+                "spans": [{"text": "author@email.com", "size": 9.0, "font": "Courier", "color": 0, "flags": 0}],
+            }
+        ]
+    }
+
+    # 2. Mock block chứa đoạn văn thường (không bị chia đôi)
+    paragraph_block_data = {
+        "type": 0,
+        "bbox": (100.0, 200.0, 300.0, 240.0), # width = 200.0
+        "lines": [
+            {
+                "bbox": (100.0, 200.0, 300.0, 220.0), # width = 200.0 (100% -> no split)
+                "wmode": 0,
+                "spans": [{"text": "This is line one of a normal paragraph.", "size": 11.0, "font": "Helvetica", "color": 0, "flags": 0}],
+            },
+            {
+                "bbox": (100.0, 220.0, 250.0, 240.0), # line cuối (thụt lề tùy ý)
+                "wmode": 0,
+                "spans": [{"text": "This is line two.", "size": 11.0, "font": "Helvetica", "color": 0, "flags": 0}],
+            }
+        ]
+    }
+
+    page = MockPage([split_block_data, paragraph_block_data], number=0)
+    extractor = TextExtractor()
+    blocks = extractor.extract_page(page)
+
+    # Mong muốn:
+    # - Block 1 bị tách làm 2 TextBlocks riêng
+    # - Block 2 giữ nguyên là 1 TextBlock duy nhất
+    # -> Tổng cộng 3 TextBlocks
+    assert len(blocks) == 3
+
+    # Kiểm tra block tên (bị split -> group chỉ có 1 dòng)
+    b0 = blocks[0]
+    assert b0.text == "Author Name"
+    assert b0.bbox == (200.0, 100.0, 270.0, 120.0)
+    assert b0.is_table_cell is False
+    assert b0.line_count == 1
+
+    # Kiểm tra block email (bị split -> group chỉ có 1 dòng)
+    b1 = blocks[1]
+    assert b1.text == "author@email.com"
+    assert b1.bbox == (150.0, 120.0, 300.0, 140.0)
+    assert b1.line_count == 1
+
+    # Kiểm tra block đoạn văn (không bị split -> group có 2 dòng)
+    b2 = blocks[2]
+    assert "normal paragraph" in b2.text
+    assert b2.bbox == (100.0, 200.0, 300.0, 240.0)
+    assert b2.line_count == 2
+
+
+

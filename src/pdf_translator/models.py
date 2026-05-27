@@ -41,6 +41,7 @@ class TextBlock:
     is_table_cell: bool = False
     align: int = 0
     font_family: str = "sans"
+    line_count: int = 1
 
     @property
     def width(self) -> float:

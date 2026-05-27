@@ -75,7 +75,13 @@ class TextRenderer:
                     rect_to_use = fitz.Rect(block.original.bbox)
                     cell_min_font_size = min(4.0, min_font_size)
                 else:
-                    rect_to_use = self._get_expanded_rect(block.original.bbox, block.original.font_size)
+                    rect_to_use = self._get_expanded_rect(
+                        block.original.bbox,
+                        block.original.font_size,
+                        all_blocks=translated_blocks,
+                        current_block=block,
+                        page_rect=page.rect,
+                    )
                     cell_min_font_size = min_font_size
 
                 adjusted_size = self._calculate_font_size(
@@ -129,7 +135,13 @@ class TextRenderer:
             if block.original.is_table_cell:
                 rect = fitz.Rect(block.original.bbox)
             else:
-                rect = self._get_expanded_rect(block.original.bbox, block.original.font_size)
+                rect = self._get_expanded_rect(
+                    block.original.bbox,
+                    block.original.font_size,
+                    all_blocks=blocks,
+                    current_block=block,
+                    page_rect=page.rect,
+                )
             font_key = (block.original.font_family, block.original.is_bold, block.original.is_italic)
             font_name = self.font_manager.FONT_NAMES[font_key]
 
@@ -156,23 +168,156 @@ class TextRenderer:
             )
 
     def _get_expanded_rect(
-        self, bbox: tuple[float, float, float, float], font_size: float
+        self,
+        bbox: tuple[float, float, float, float],
+        font_size: float,
+        all_blocks: list[TranslatedBlock] | None = None,
+        current_block: TranslatedBlock | None = None,
+        page_rect: fitz.Rect | None = None,
     ) -> fitz.Rect:
         """Tạo bounding box mở rộng để tránh việc co chữ quá mức hoặc mất chữ do giới hạn dòng.
 
-        Mở rộng chiều cao xuống dưới dựa trên font size để đảm bảo đủ chiều cao dòng (line height)
-        và nới rộng chiều rộng thêm 5% về phía bên phải để tránh tràn chiều ngang.
+        Quy trình:
+        1. Nếu không có đủ dữ liệu ngữ cảnh (all_blocks hoặc page_rect), dùng logic mở rộng mặc định cũ.
+        2. Xác định hướng mở rộng ngang dựa vào align:
+           - align == 2 (phải): mở rộng sang trái
+           - align != 2 (trái/giữa): mở rộng sang phải
+        3. Thử mở rộng ngang tối đa đến phần tử gần nhất (trừ đệm 2pt) hoặc mép trang.
+           Nếu mở rộng ngang được > 0pt thì chỉ mở rộng ngang và trả về.
+        4. Nếu không mở rộng ngang được, fallback sang mở rộng dọc xuống dưới:
+           - Chiều cao mục tiêu là max(h, font_size * 1.8)
+           - Giới hạn bởi phần tử bên dưới (trừ đệm 2pt) hoặc mép dưới trang.
+           - Trả về bbox mở rộng dọc.
+        5. Nếu không thể mở rộng dọc luôn, trả về bbox gốc.
         """
         x0, y0, x1, y1 = bbox
         w = x1 - x0
         h = y1 - y0
 
-        # Hệ số mở rộng chiều cao an toàn cho line-height của PyMuPDF
-        new_h = max(h, font_size * 1.8)
-        # Nới rộng chiều rộng thêm 5% để tạo khoảng trống thở cho bản dịch
-        new_w = w + (w * 0.05)
+        # Fallback về logic cũ nếu thiếu thông tin
+        if all_blocks is None or page_rect is None:
+            new_h = max(h, font_size * 1.8)
+            new_w = w + (w * 0.05)
+            return fitz.Rect(x0, y0, x0 + new_w, y0 + new_h)
 
-        return fitz.Rect(x0, y0, x0 + new_w, y0 + new_h)
+        # Lấy danh sách các bbox của những block khác trên trang
+        other_bboxes = []
+        for block in all_blocks:
+            if current_block and block == current_block:
+                continue
+            # Chỉ lấy các block có text để tránh va chạm với block rỗng/bỏ qua
+            if block.original and block.original.text.strip():
+                other_bboxes.append(block.original.bbox)
+
+        # Lấy thông số căn lề từ current_block
+        align = current_block.original.align if current_block and current_block.original else 0
+
+        # Mép trang tuyệt đối
+        page_x0 = page_rect.x0
+        page_y0 = page_rect.y0
+        page_x1 = page_rect.x1
+        page_y1 = page_rect.y1
+
+        # Ước lượng lề phải và lề trái thực tế của cột nội dung chính (mặc định 54pt ~ 0.75 inch)
+        original_right_margin = 54.0
+        original_left_margin = 54.0
+
+        if all_blocks:
+            right_margins = []
+            left_margins = []
+            page_w = page_rect.width
+            page_h = page_rect.height
+            for block in all_blocks:
+                if not block.original or not block.original.text.strip():
+                    continue
+                # Bỏ qua header/footer ở 10% top/bottom
+                ob_y0 = block.original.bbox[1]
+                ob_y1 = block.original.bbox[3]
+                if ob_y0 < page_h * 0.1 or ob_y1 > page_h * 0.9:
+                    continue
+                # Bỏ qua các block quá nhỏ
+                ox0, _, ox1, _ = block.original.bbox
+                if (ox1 - ox0) < 30.0:
+                    continue
+                
+                if ox1 > page_w / 2:
+                    right_margins.append(page_x1 - ox1)
+                if ox0 < page_w / 2:
+                    left_margins.append(ox0 - page_x0)
+            
+            if right_margins:
+                original_right_margin = max(10.0, min(right_margins))
+            if left_margins:
+                original_left_margin = max(10.0, min(left_margins))
+
+        # Sử dụng biên cột nội dung làm giới hạn mở rộng tối đa thay vì mép trang tuyệt đối
+        max_allowed_x1 = page_x1 - original_right_margin
+        min_allowed_x0 = page_x0 + original_left_margin
+
+        # Khoảng đệm an toàn
+        cushion = 2.0
+
+        if align == 2:
+            # Hướng ngang: Mở rộng sang TRÁI
+            # Tìm các phần tử chồng lấn dọc và nằm bên trái
+            left_boundaries = [min_allowed_x0]
+            for ob in other_bboxes:
+                ox0, oy0, ox1, oy1 = ob
+                # Chồng lấn dọc
+                if max(y0, oy0) < min(y1, oy1):
+                    # Nằm bên trái
+                    if ox1 <= x0:
+                        left_boundaries.append(ox1)
+            
+            max_left = max(left_boundaries)
+            # Giới hạn bên trái mới, có chừa đệm cushion
+            new_x0 = max_left + cushion
+            if new_x0 < x0:
+                # Thành công mở rộng sang trái
+                return fitz.Rect(new_x0, y0, x1, y1)
+        else:
+            # Hướng ngang: Mở rộng sang PHẢI
+            # Tìm các phần tử chồng lấn dọc và nằm bên phải
+            right_boundaries = [max_allowed_x1]
+            for ob in other_bboxes:
+                ox0, oy0, ox1, oy1 = ob
+                # Chồng lấn dọc
+                if max(y0, oy0) < min(y1, oy1):
+                    # Nằm bên phải
+                    if ox0 >= x1:
+                        right_boundaries.append(ox0)
+            
+            min_right = min(right_boundaries)
+            # Giới hạn bên phải mới, có chừa đệm cushion
+            new_x1 = min_right - cushion
+            if new_x1 > x1:
+                # Thành công mở rộng sang phải
+                return fitz.Rect(x0, y0, new_x1, y1)
+
+        # Fallback: Mở rộng DỌC xuống dưới
+        target_h = max(h, font_size * 1.8)
+        target_y1 = y0 + target_h
+
+        # Tìm các phần tử chồng lấn ngang và nằm bên dưới
+        bottom_boundaries = [page_y1]
+        for ob in other_bboxes:
+            ox0, oy0, ox1, oy1 = ob
+            # Chồng lấn ngang
+            if max(x0, ox0) < min(x1, ox1):
+                # Nằm bên dưới
+                if oy0 >= y1:
+                    bottom_boundaries.append(oy0)
+
+        min_bottom = min(bottom_boundaries)
+        max_y1 = min_bottom - cushion
+        new_y1 = min(target_y1, max_y1)
+
+        if new_y1 > y1:
+            # Thành công mở rộng xuống dưới
+            return fitz.Rect(x0, y0, x1, new_y1)
+
+        # Nếu không mở rộng được hướng nào, giữ nguyên bbox gốc
+        return fitz.Rect(x0, y0, x1, y1)
 
     def _calculate_font_size(
         self,

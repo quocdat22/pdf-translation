@@ -330,4 +330,234 @@ def test_renderer_alignment_and_font_family(monkeypatch) -> None:
     doc.close()
 
 
+def test_renderer_expand_rect_collision_right() -> None:
+    """Test mở rộng sang phải bị giới hạn bởi block khác bên phải (chừa cushion 2pt)."""
+    fm = FontManager()
+    renderer = TextRenderer(fm)
+
+    # Block hiện tại ở (50, 50, 150, 70), align = 0
+    cur_block = TranslatedBlock(
+        original=TextBlock(
+            block_id=0,
+            text="Current Block",
+            bbox=(50.0, 50.0, 150.0, 70.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+            align=0,
+        ),
+        translated_text="Dịch",
+        adjusted_font_size=10.0,
+    )
+
+    # Block cản trở bên phải ở (200, 50, 300, 70)
+    other_block = TranslatedBlock(
+        original=TextBlock(
+            block_id=1,
+            text="Other Block",
+            bbox=(200.0, 50.0, 300.0, 70.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+        ),
+        translated_text="Khác",
+        adjusted_font_size=10.0,
+    )
+
+    all_blocks = [cur_block, other_block]
+    page_rect = fitz.Rect(0, 0, 500, 500)
+
+    expanded = renderer._get_expanded_rect(
+        cur_block.original.bbox,
+        cur_block.original.font_size,
+        all_blocks=all_blocks,
+        current_block=cur_block,
+        page_rect=page_rect,
+    )
+
+    # Trục X: 50 -> 200 - 2.0 (cushion) = 198.0
+    assert expanded.x0 == 50.0
+    assert expanded.x1 == 198.0
+    # Không được mở rộng dọc vì mở rộng ngang thành công
+    assert expanded.y0 == 50.0
+    assert expanded.y1 == 70.0
+
+
+def test_renderer_expand_rect_collision_left() -> None:
+    """Test mở rộng sang trái (do align=2) bị giới hạn bởi block khác bên trái."""
+    fm = FontManager()
+    renderer = TextRenderer(fm)
+
+    # Block hiện tại ở (150, 50, 250, 70), align = 2 (Right align)
+    cur_block = TranslatedBlock(
+        original=TextBlock(
+            block_id=0,
+            text="Current Block",
+            bbox=(150.0, 50.0, 250.0, 70.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+            align=2,
+        ),
+        translated_text="Dịch",
+        adjusted_font_size=10.0,
+    )
+
+    # Block cản trở bên trái ở (50, 50, 100, 70)
+    other_block = TranslatedBlock(
+        original=TextBlock(
+            block_id=1,
+            text="Other Block",
+            bbox=(50.0, 50.0, 100.0, 70.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+        ),
+        translated_text="Khác",
+        adjusted_font_size=10.0,
+    )
+
+    all_blocks = [cur_block, other_block]
+    page_rect = fitz.Rect(0, 0, 500, 500)
+
+    expanded = renderer._get_expanded_rect(
+        cur_block.original.bbox,
+        cur_block.original.font_size,
+        all_blocks=all_blocks,
+        current_block=cur_block,
+        page_rect=page_rect,
+    )
+
+    # Trục X: 100 + 2.0 (cushion) = 102.0 -> 250
+    assert expanded.x0 == 102.0
+    assert expanded.x1 == 250.0
+    # Không mở rộng dọc
+    assert expanded.y0 == 50.0
+    assert expanded.y1 == 70.0
+
+
+def test_renderer_expand_rect_collision_vertical() -> None:
+    """Test fallback mở rộng dọc khi hướng ngang bị chặn đứng hoàn toàn."""
+    fm = FontManager()
+    renderer = TextRenderer(fm)
+
+    # Block hiện tại ở (50, 50, 150, 70), align = 0
+    cur_block = TranslatedBlock(
+        original=TextBlock(
+            block_id=0,
+            text="Current Block",
+            bbox=(50.0, 50.0, 150.0, 70.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+            align=0,
+        ),
+        translated_text="Dịch",
+        adjusted_font_size=10.0,
+    )
+
+    # Block cản trở bên phải sát sạt ở (151, 50, 200, 70) -> Không mở rộng ngang được (> 0pt) vì cushion = 2
+    other_right = TranslatedBlock(
+        original=TextBlock(
+            block_id=1,
+            text="Other Right",
+            bbox=(151.0, 50.0, 200.0, 70.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+        ),
+        translated_text="Khác",
+        adjusted_font_size=10.0,
+    )
+
+    # Block cản trở bên dưới ở (50, 100, 150, 120)
+    other_bottom = TranslatedBlock(
+        original=TextBlock(
+            block_id=2,
+            text="Other Bottom",
+            bbox=(50.0, 100.0, 150.0, 120.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+        ),
+        translated_text="Khác",
+        adjusted_font_size=10.0,
+    )
+
+    all_blocks = [cur_block, other_right, other_bottom]
+    page_rect = fitz.Rect(0, 0, 500, 500)
+
+    expanded = renderer._get_expanded_rect(
+        cur_block.original.bbox,
+        20.0,  # font_size = 20.0, so target_h = 36.0, target_y1 = 50 + 36 = 86
+        all_blocks=all_blocks,
+        current_block=cur_block,
+        page_rect=page_rect,
+    )
+
+    # Trục X giữ nguyên
+    assert expanded.x0 == 50.0
+    assert expanded.x1 == 150.0
+    # Mở rộng dọc: max_y1 = 100 - 2.0 = 98.0. Target bottom = 86.0.
+    # Vì 86.0 < 98.0 nên expanded.y1 phải là 86.0.
+    assert expanded.y0 == 50.0
+    assert expanded.y1 == 86.0
+
+
+def test_renderer_expand_rect_boundary() -> None:
+    """Test mở rộng sang phải bị giới hạn bởi mép trang (page boundary)."""
+    fm = FontManager()
+    renderer = TextRenderer(fm)
+
+    # Block hiện tại: (400, 50, 450, 70), align = 0
+    cur_block = TranslatedBlock(
+        original=TextBlock(
+            block_id=0,
+            text="Current Block",
+            bbox=(400.0, 50.0, 450.0, 70.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+            align=0,
+        ),
+        translated_text="Dịch",
+        adjusted_font_size=10.0,
+    )
+
+    # Block thứ hai xác định lề phải chính của cột nội dung là 20pt (x1 = 480.0, page width = 500)
+    margin_block = TranslatedBlock(
+        original=TextBlock(
+            block_id=1,
+            text="Margin Definer Block",
+            bbox=(100.0, 100.0, 480.0, 120.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+        ),
+        translated_text="Lề",
+        adjusted_font_size=10.0,
+    )
+
+    all_blocks = [cur_block, margin_block]
+    # Trang rộng 500
+    page_rect = fitz.Rect(0, 0, 500, 500)
+
+    expanded = renderer._get_expanded_rect(
+        cur_block.original.bbox,
+        cur_block.original.font_size,
+        all_blocks=all_blocks,
+        current_block=cur_block,
+        page_rect=page_rect,
+    )
+
+    # Trục X: Cần được giới hạn bởi max_allowed_x1 = 480.0. Với cushion 2.0pt -> 480 - 2.0 = 478.0
+    assert expanded.x0 == 400.0
+    assert expanded.x1 == 478.0
+    # Không mở rộng dọc
+    assert expanded.y0 == 50.0
+    assert expanded.y1 == 70.0
+
+
+
+
 

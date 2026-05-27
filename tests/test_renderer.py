@@ -558,6 +558,69 @@ def test_renderer_expand_rect_boundary() -> None:
     assert expanded.y1 == 70.0
 
 
+def test_renderer_expand_rect_symmetric_centered() -> None:
+    """Test mở rộng đối xứng 2 bên đối với khối căn giữa (align=1)."""
+    fm = FontManager()
+    renderer = TextRenderer(fm)
 
+    # Block hiện tại (align=1, căn giữa): (200, 50, 300, 70)
+    cur_block = TranslatedBlock(
+        original=TextBlock(
+            block_id=0,
+            text="Center Block",
+            bbox=(200.0, 50.0, 300.0, 70.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+            align=1,
+        ),
+        translated_text="Dịch căn giữa",
+        adjusted_font_size=10.0,
+    )
 
+    # Block cản trở bên trái ở (0, 50, 150, 70) -> Biên trái = 150 + 2.0 = 152.0. Max left expansion = 200 - 152 = 48.0
+    other_left = TranslatedBlock(
+        original=TextBlock(
+            block_id=1,
+            text="Left Obstacle",
+            bbox=(0.0, 50.0, 150.0, 70.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+        ),
+        translated_text="Trái",
+        adjusted_font_size=10.0,
+    )
 
+    # Block cản trở bên phải ở (360, 50, 500, 70) -> Biên phải = 360 - 2.0 = 358.0. Max right expansion = 358 - 300 = 58.0
+    other_right = TranslatedBlock(
+        original=TextBlock(
+            block_id=2,
+            text="Right Obstacle",
+            bbox=(360.0, 50.0, 500.0, 70.0),
+            font_size=10.0,
+            font_name="Helvetica",
+            color=(0, 0, 0),
+        ),
+        translated_text="Phải",
+        adjusted_font_size=10.0,
+    )
+
+    all_blocks = [cur_block, other_left, other_right]
+    page_rect = fitz.Rect(0, 0, 500, 500)
+
+    expanded = renderer._get_expanded_rect(
+        cur_block.original.bbox,
+        cur_block.original.font_size,
+        all_blocks=all_blocks,
+        current_block=cur_block,
+        page_rect=page_rect,
+    )
+
+    # Mở rộng đối xứng tối đa theo lượng nhỏ hơn (48.0pt) để giữ nguyên tâm
+    # new_x0 = 200 - 48 = 152.0
+    # new_x1 = 300 + 48 = 348.0
+    assert expanded.x0 == 152.0
+    assert expanded.x1 == 348.0
+    assert expanded.y0 == 50.0
+    assert expanded.y1 == 70.0

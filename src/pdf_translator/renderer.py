@@ -275,6 +275,32 @@ class TextRenderer:
             if new_x0 < x0:
                 # Thành công mở rộng sang trái
                 return fitz.Rect(new_x0, y0, x1, y1)
+        elif align == 1:
+            # Hướng ngang: Mở rộng ĐỐI XỨNG sang cả 2 bên để giữ nguyên tâm
+            # 1. Tìm khoảng trống tối đa bên trái
+            left_boundaries = [min_allowed_x0]
+            for ob in other_bboxes:
+                ox0, oy0, ox1, oy1 = ob
+                if max(y0, oy0) < min(y1, oy1):
+                    if ox1 <= x0:
+                        left_boundaries.append(ox1)
+            max_left = max(left_boundaries)
+            max_left_expansion = max(0.0, x0 - (max_left + cushion))
+
+            # 2. Tìm khoảng trống tối đa bên phải
+            right_boundaries = [max_allowed_x1]
+            for ob in other_bboxes:
+                ox0, oy0, ox1, oy1 = ob
+                if max(y0, oy0) < min(y1, oy1):
+                    if ox0 >= x1:
+                        right_boundaries.append(ox0)
+            min_right = min(right_boundaries)
+            max_right_expansion = max(0.0, (min_right - cushion) - x1)
+
+            # 3. Chọn lượng mở rộng đối xứng nhỏ nhất giữa 2 bên
+            symmetric_dx = min(max_left_expansion, max_right_expansion)
+            if symmetric_dx > 0.0:
+                return fitz.Rect(x0 - symmetric_dx, y0, x1 + symmetric_dx, y1)
         else:
             # Hướng ngang: Mở rộng sang PHẢI
             # Tìm các phần tử chồng lấn dọc và nằm bên phải

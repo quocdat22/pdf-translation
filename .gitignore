@@ -45,3 +45,6 @@ tests/fixtures/*.pdf
 .DS_Store
 Thumbs.db
 
+# Git worktrees
+worktrees/
+

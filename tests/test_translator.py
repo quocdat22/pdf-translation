@@ -393,5 +393,65 @@ async def test_translator_with_cache() -> None:
             pass
 
 
+def test_translator_build_prompt_with_semantic_info() -> None:
+    """Test xây dựng prompt chứa ngữ cảnh ngữ nghĩa (role, context)."""
+    config = AppConfig(api_key="test-key")
+    translator = Translator(config)
+
+    blocks = [
+        TextBlock(
+            block_id=0,
+            text="Heading Text",
+            bbox=(0, 0, 100, 20),
+            font_size=12.0,
+            font_name="helv",
+            color=0,
+            semantic_role="heading",
+            semantic_context="Chapter Title",
+        ),
+        TextBlock(
+            block_id=1,
+            text="Caption Text",
+            bbox=(0, 30, 100, 50),
+            font_size=10.0,
+            font_name="helv",
+            color=0,
+            semantic_role="figure_caption",
+            semantic_context="Graph description",
+        ),
+    ]
+
+    prompt = translator._build_prompt(blocks)
+    assert "[1] (Role: Heading) (Context: Chapter Title) Heading Text" in prompt
+    assert "[2] (Role: Figure Caption) (Context: Graph description) Caption Text" in prompt
+
+
+def test_translator_parse_response_removes_semantic_markers() -> None:
+    """Test parse response loại bỏ marker (Role) và (Context) lặp lại."""
+    config = AppConfig(api_key="test-key")
+    translator = Translator(config)
+
+    blocks = [
+        TextBlock(
+            block_id=0,
+            text="Heading Text",
+            bbox=(0, 0, 100, 20),
+            font_size=12.0,
+            font_name="helv",
+            color=0,
+            semantic_role="heading",
+            semantic_context="Chapter Title",
+        )
+    ]
+
+    response = "[1] (Role: Heading) (Context: Chapter Title) Tiêu đề chương"
+    parsed_map = translator._parse_response(response, blocks)
+    assert parsed_map[0] == "Tiêu đề chương"
+
+    response_mixed = "[1] (Role: Heading) (Context: Chapter Title) (Table Cell) Tiêu đề"
+    parsed_map_mixed = translator._parse_response(response_mixed, blocks)
+    assert parsed_map_mixed[0] == "Tiêu đề"
+
+
 
 

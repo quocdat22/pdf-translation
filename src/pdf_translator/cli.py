@@ -140,6 +140,12 @@ def parse_pages_string(pages_str: str) -> list[int]:
     default=False,
     help="Disable local translation caching.",
 )
+@click.option(
+    "--vision",
+    is_flag=True,
+    default=False,
+    help="Enable Vision-first mode: use Ollama to analyze page layout before translating.",
+)
 @click.version_option(version=__version__, prog_name="pdf-translator")
 def main(
     input_file: Path,
@@ -151,6 +157,7 @@ def main(
     concurrency: int | None,
     pages: str | None,
     no_cache: bool,
+    vision: bool,
 ) -> None:
     """Translate a PDF from English to Vietnamese, preserving the original layout.
 
@@ -172,6 +179,7 @@ def main(
         "log_level": log_level,
         "concurrency": concurrency,
         "use_cache": False if no_cache else None,
+        "vision_enabled": True if vision else None,
     }
     config = load_config(config_path=config_file, cli_overrides=cli_overrides)
 
@@ -225,6 +233,14 @@ def main(
                 "⚠️  Pipeline chưa sẵn sàng. Đây là Phase 1 (Foundation).",
                 err=True,
             )
+    except (ConnectionError, RuntimeError) as e:
+        if config.vision_enabled:
+            logger.error(f"Vision mode lỗi: {e}")
+            click.echo(f"❌ Vision mode lỗi: {e}", err=True)
+            sys.exit(1)
+        logger.exception(f"Lỗi xử lý: {e}")
+        click.echo(f"❌ Lỗi: {e}", err=True)
+        sys.exit(1)
     except Exception as e:
         logger.exception(f"Lỗi xử lý: {e}")
         click.echo(f"❌ Lỗi: {e}", err=True)

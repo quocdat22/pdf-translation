@@ -14,6 +14,26 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class SemanticRegion:
+    """Một vùng ngữ nghĩa được Vision AI phân tích từ ảnh trang PDF.
+
+    Attributes:
+        region_id: ID duy nhất trong trang.
+        bbox: Bounding box ước lượng (x0, y0, x1, y1) theo tỷ lệ trang (0.0–1.0).
+        role: Vai trò ngữ nghĩa (paragraph, heading, figure_caption, table_header,
+              footnote, list_item, page_header, page_footer, sidebar...).
+        context: Mô tả ngắn về nội dung/ngữ cảnh vùng này.
+        related_regions: Danh sách region_id liên quan (vd: caption → figure).
+    """
+
+    region_id: int
+    bbox: tuple[float, float, float, float]  # normalized 0.0–1.0
+    role: str
+    context: str = ""
+    related_regions: list[int] = field(default_factory=list)
+
+
+@dataclass
 class TextBlock:
     """Một block text được trích xuất từ PDF.
 
@@ -42,6 +62,9 @@ class TextBlock:
     align: int = 0
     font_family: str = "sans"
     line_count: int = 1
+    semantic_role: str | None = None      # vai trò từ vision (None = chưa phân tích)
+    semantic_context: str | None = None   # ngữ cảnh từ vision
+    region_id: int | None = None          # ID region tương ứng
 
     @property
     def width(self) -> float:
@@ -141,3 +164,8 @@ class AppConfig:
     log_level: str = "INFO"
     log_file: str | None = None
     use_cache: bool = True
+    vision_enabled: bool = False
+    vision_ollama_base_url: str = "http://localhost:11434"
+    vision_ollama_model: str = "qwen3.5:2b"
+    vision_dpi: int = 200
+    vision_timeout: int | None = None

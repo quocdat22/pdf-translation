@@ -34,6 +34,11 @@ ENV_MAP: dict[str, str] = {
     "PDF_TRANSLATOR_LOG_LEVEL": "log_level",
     "PDF_TRANSLATOR_LOG_FILE": "log_file",
     "PDF_TRANSLATOR_USE_CACHE": "use_cache",
+    "PDF_TRANSLATOR_VISION_ENABLED": "vision_enabled",
+    "PDF_TRANSLATOR_VISION_OLLAMA_BASE_URL": "vision_ollama_base_url",
+    "PDF_TRANSLATOR_VISION_OLLAMA_MODEL": "vision_ollama_model",
+    "PDF_TRANSLATOR_VISION_DPI": "vision_dpi",
+    "PDF_TRANSLATOR_VISION_TIMEOUT": "vision_timeout",
 }
 
 
@@ -136,6 +141,17 @@ def validate_config(config: AppConfig) -> list[str]:
                 f"Thư mục chứa log_file không tồn tại: '{log_dir}'"
             )
 
+    # Validate vision config chỉ khi vision_enabled = True
+    if config.vision_enabled:
+        if config.vision_dpi < 72 or config.vision_dpi > 600:
+            errors.append(
+                f"vision_dpi nên nằm trong khoảng 72–600, hiện tại: {config.vision_dpi}"
+            )
+        if config.vision_timeout is not None and config.vision_timeout <= 0:
+            errors.append(
+                f"vision_timeout phải > 0, hiện tại: {config.vision_timeout}"
+            )
+
     return errors
 
 
@@ -182,6 +198,13 @@ def _flatten_toml(data: dict) -> dict:
     if "log_file" in logging_cfg:
         flat["log_file"] = logging_cfg["log_file"]
 
+    # Thêm xử lý section [vision]
+    vision = data.get("vision", {})
+    for k in ("enabled", "ollama_base_url", "ollama_model", "dpi", "timeout"):
+        if k in vision:
+            flat_key = f"vision_{k}" if k != "enabled" else "vision_enabled"
+            flat[flat_key] = vision[k]
+
     return flat
 
 
@@ -191,11 +214,12 @@ def _build_config(config_dict: dict) -> AppConfig:
     kwargs: dict = {}
 
     str_fields = {"api_key", "api_base_url", "model", "source_lang",
-                  "target_lang", "font_path", "log_level"}
-    int_fields = {"concurrency"}
+                  "target_lang", "font_path", "log_level",
+                  "vision_ollama_base_url", "vision_ollama_model"}
+    int_fields = {"concurrency", "vision_dpi", "vision_timeout"}
     float_fields = {"min_font_size"}
     opt_str_fields = {"log_file"}
-    bool_fields = {"use_cache"}
+    bool_fields = {"use_cache", "vision_enabled"}
 
     for field_name in str_fields:
         if field_name in config_dict:

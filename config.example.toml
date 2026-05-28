@@ -59,3 +59,23 @@ level = "INFO"
 
 # Đường dẫn file log (để trống = chỉ log ra console)
 # log_file = "/path/to/pdf-translator.log"
+
+
+[vision]
+# Bật chế độ Vision-first (dùng AI nhìn layout trước khi dịch)
+# Yêu cầu Ollama chạy trên máy local
+# Bật/tắt nhanh bằng CLI: pdf-translator input.pdf --vision
+enabled = false
+
+# Ollama server URL
+ollama_base_url = "http://localhost:11434"
+
+# Vision model trên Ollama (phải là model multimodal hỗ trợ image)
+ollama_model = "qwen3.5:2b"
+
+# Độ phân giải render trang PDF thành ảnh (DPI) - cao hơn = chính xác hơn nhưng chậm hơn
+dpi = 200
+
+# Thời gian chờ tối đa (giây) cho mô hình Vision sinh kết quả (mặc định: 300)
+# Tăng lên nếu máy của bạn chạy mô hình local chậm
+timeout = 300

@@ -262,6 +262,10 @@ class Translator:
             "- Do NOT add any explanations, notes, or conversational text.\n"
             "- Keep the translation concise — the translated text should be similar in length to the original when possible.\n"
             "- If a input block is prefixed with '(Table Cell)', it belongs to a narrow table column. You MUST translate it extremely concisely (using shorter words or abbreviations if common) to prevent layout overflow. Do not include the '(Table Cell)' marker in your translation.\n"
+            "- If a block has a (Role: ...) or (Context: ...) prefix, use that information to guide your translation style and terminology. Do not include these markers in your output.\n"
+            "- For headings, keep the translation concise and impactful.\n"
+            "- For figure captions, maintain technical accuracy.\n"
+            "- For footnotes, use appropriate scholarly Vietnamese.\n"
             "\n"
             "Input format:\n"
             "[1] Text block 1\n"
@@ -273,12 +277,23 @@ class Translator:
         )
 
     def _build_prompt(self, blocks: list[TextBlock]) -> str:
-        """Xây dựng prompt gộp các block kèm theo số thứ tự (1-based) và marker ô bảng."""
+        """Xây dựng prompt gộp các block kèm theo số thứ tự (1-based) và các marker ngữ cảnh/ô bảng."""
         lines = []
         for i, block in enumerate(blocks, start=1):
             clean_text = re.sub(r"\s+", " ", block.text).strip()
+            prefix_parts = []
+
             if block.is_table_cell:
-                lines.append(f"[{i}] (Table Cell) {clean_text}")
+                prefix_parts.append("(Table Cell)")
+            if block.semantic_role:
+                role_label = block.semantic_role.replace("_", " ").title()
+                prefix_parts.append(f"(Role: {role_label})")
+            if block.semantic_context:
+                prefix_parts.append(f"(Context: {block.semantic_context})")
+
+            prefix = " ".join(prefix_parts)
+            if prefix:
+                lines.append(f"[{i}] {prefix} {clean_text}")
             else:
                 lines.append(f"[{i}] {clean_text}")
         return "\n".join(lines)
@@ -297,8 +312,12 @@ class Translator:
                 idx = int(num_str) - 1
                 if 0 <= idx < len(original_blocks):
                     cleaned_text = text.strip()
-                    # Loại bỏ marker nếu LLM vô tình lặp lại
-                    cleaned_text = re.sub(r"^\(Table Cell\)\s*", "", cleaned_text, flags=re.IGNORECASE)
+                    # Loại bỏ các marker nếu LLM vô tình lặp lại ở đầu bản dịch
+                    while True:
+                        new_text = re.sub(r"^\((?:Table Cell|Role:\s*[^)]+|Context:\s*[^)]+)\)\s*", "", cleaned_text, flags=re.IGNORECASE)
+                        if new_text == cleaned_text:
+                            break
+                        cleaned_text = new_text
                     parsed_map[idx] = cleaned_text
             except ValueError:
                 continue

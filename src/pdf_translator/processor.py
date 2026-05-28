@@ -70,7 +70,8 @@ class PDFProcessor:
             logger.info(f"Bắt đầu dịch PDF: {input_path} ({len(target_pages)} trang)")
 
             # --- Phase 1: Extract (sequential, sync) ---
-            logger.info("Phase 1/3: Trích xuất văn bản gốc từ PDF...")
+            phase_prefix = "1/4" if self.config.vision_enabled else "1/3"
+            logger.info(f"Phase {phase_prefix}: Trích xuất văn bản gốc từ PDF...")
             page_blocks: dict[int, list[TextBlock]] = {}
             for page_num in target_pages:
                 page = doc[page_num]
@@ -78,8 +79,29 @@ class PDFProcessor:
                 page_blocks[page_num] = blocks
                 logger.debug(f"Trang {page_num}: Đã trích xuất {len(blocks)} blocks.")
 
+            # --- Phase 1.5: Vision Analysis (sequential, sync) ---
+            if self.config.vision_enabled:
+                logger.info("Phase 2/4: Phân tích layout bằng Vision AI...")
+                from pdf_translator.vision_analyzer import VisionAnalyzer
+                vision = VisionAnalyzer(self.config)  # Raises nếu Ollama fail
+
+                for page_num in tqdm(target_pages, desc="Vision analysis", unit="trang"):
+                    blocks = page_blocks.get(page_num, [])
+                    if not blocks:
+                        continue
+                    page = doc[page_num]
+                    regions = vision.analyze_page(page, page_num)
+                    page_blocks[page_num] = vision.enrich_blocks(
+                        blocks, regions, page.rect
+                    )
+                    logger.debug(
+                        f"Trang {page_num}: Phân tích {len(regions)} regions, "
+                        f"enriched {sum(1 for b in page_blocks[page_num] if b.semantic_role)} blocks."
+                    )
+
             # --- Phase 2: Translate (async parallel) ---
-            logger.info("Phase 2/3: Đang thực hiện dịch thuật song song...")
+            phase_prefix = "3/4" if self.config.vision_enabled else "2/3"
+            logger.info(f"Phase {phase_prefix}: Đang thực hiện dịch thuật song song...")
             tasks = []
             for page_num in target_pages:
                 blocks = page_blocks[page_num]
@@ -105,7 +127,8 @@ class PDFProcessor:
                 logger.info("Tài liệu không có văn bản nào cần gửi đi dịch.")
 
             # --- Phase 3: Render (sequential, sync) ---
-            logger.info("Phase 3/3: Render văn bản dịch lên PDF...")
+            phase_prefix = "4/4" if self.config.vision_enabled else "3/3"
+            logger.info(f"Phase {phase_prefix}: Render văn bản dịch lên PDF...")
             for page_num in target_pages:
                 blocks = page_blocks[page_num]
                 if not blocks:

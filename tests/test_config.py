@@ -93,6 +93,51 @@ class TestLoadConfig:
         )
         assert config.use_cache is True
 
+    def test_vision_config_defaults(self):
+        """Kiểm tra giá trị mặc định của cấu hình vision."""
+        config = load_config(config_path=Path("nonexistent.toml"))
+        assert config.vision_enabled is False
+        assert config.vision_ollama_base_url == "http://localhost:11434"
+        assert config.vision_ollama_model == "qwen3.5:2b"
+        assert config.vision_dpi == 200
+        assert config.vision_timeout is None
+
+    def test_load_vision_from_toml(self, tmp_path: Path):
+        """Nạp các trường cấu hình vision từ file TOML."""
+        toml_file = tmp_path / "config.toml"
+        toml_content = """
+        [vision]
+        enabled = true
+        ollama_base_url = "http://localhost:9999"
+        ollama_model = "custom-vision:latest"
+        dpi = 300
+        timeout = 450
+        """
+        toml_file.write_text(toml_content, encoding="utf-8")
+        config = load_config(config_path=toml_file)
+        assert config.vision_enabled is True
+        assert config.vision_ollama_base_url == "http://localhost:9999"
+        assert config.vision_ollama_model == "custom-vision:latest"
+        assert config.vision_dpi == 300
+        assert config.vision_timeout == 450
+
+    def test_vision_cli_override(self, tmp_path: Path):
+        """CLI overrides ghi đè các cấu hình vision."""
+        toml_file = tmp_path / "config.toml"
+        toml_content = """
+        [vision]
+        enabled = false
+        dpi = 200
+        """
+        toml_file.write_text(toml_content, encoding="utf-8")
+        config = load_config(
+            config_path=toml_file,
+            cli_overrides={"vision_enabled": True, "vision_dpi": 400, "vision_timeout": 600}
+        )
+        assert config.vision_enabled is True
+        assert config.vision_dpi == 400
+        assert config.vision_timeout == 600
+
 
 class TestValidateConfig:
     def _valid_config(self) -> AppConfig:
@@ -148,6 +193,46 @@ class TestValidateConfig:
         errors = validate_config(cfg)
         assert len(errors) >= 3
 
+    def test_invalid_vision_dpi_when_disabled(self):
+        """vision_dpi không hợp lệ nhưng vision bị tắt -> không lỗi."""
+        cfg = self._valid_config()
+        cfg.vision_enabled = False
+        cfg.vision_dpi = 10
+        errors = validate_config(cfg)
+        assert errors == []
+
+    def test_invalid_vision_dpi_when_enabled(self):
+        """vision_dpi không hợp lệ khi vision được bật -> lỗi."""
+        cfg = self._valid_config()
+        cfg.vision_enabled = True
+        cfg.vision_dpi = 10  # Dưới 72
+        errors = validate_config(cfg)
+        assert any("vision_dpi" in e for e in errors)
+
+        cfg.vision_dpi = 700  # Trên 600
+        errors = validate_config(cfg)
+        assert any("vision_dpi" in e for e in errors)
+
+        cfg.vision_dpi = 300  # Hợp lệ
+        errors = validate_config(cfg)
+        assert errors == []
+
+    def test_invalid_vision_timeout(self):
+        """vision_timeout <= 0 -> lỗi."""
+        cfg = self._valid_config()
+        cfg.vision_enabled = True
+        cfg.vision_timeout = 0
+        errors = validate_config(cfg)
+        assert any("vision_timeout" in e for e in errors)
+
+        cfg.vision_timeout = -10
+        errors = validate_config(cfg)
+        assert any("vision_timeout" in e for e in errors)
+
+        cfg.vision_timeout = 10  # Hợp lệ
+        errors = validate_config(cfg)
+        assert errors == []
+
 
 class TestFlattenToml:
     def test_full_toml(self):
@@ -176,3 +261,20 @@ class TestFlattenToml:
         data = {"api": {"key": "only-key"}}
         flat = _flatten_toml(data)
         assert flat == {"api_key": "only-key"}
+
+    def test_vision_toml_flatten(self):
+        data = {
+            "vision": {
+                "enabled": True,
+                "ollama_base_url": "http://ollama:11434",
+                "ollama_model": "model-v",
+                "dpi": 150,
+                "timeout": 120
+            }
+        }
+        flat = _flatten_toml(data)
+        assert flat["vision_enabled"] is True
+        assert flat["vision_ollama_base_url"] == "http://ollama:11434"
+        assert flat["vision_ollama_model"] == "model-v"
+        assert flat["vision_dpi"] == 150
+        assert flat["vision_timeout"] == 120

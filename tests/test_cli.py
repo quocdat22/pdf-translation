@@ -194,3 +194,52 @@ def test_cli_nonexistent_input_file() -> None:
     result = runner.invoke(main, ["nonexistent_file.pdf"])
     assert result.exit_code != 0
     assert "does not exist" in result.output
+
+
+@patch("pdf_translator.cli.load_config")
+@patch("pdf_translator.cli.validate_config")
+@patch("pdf_translator.processor.PDFProcessor")
+def test_cli_vision_override(
+    mock_processor_class: MagicMock,
+    mock_validate_config: MagicMock,
+    mock_load_config: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """Kiểm tra CLI nhận và chuyển tiếp tham số --vision."""
+    doc = fitz.open()
+    doc.new_page()
+    pdf_path = tmp_path / "input.pdf"
+    doc.save(pdf_path)
+    doc.close()
+
+    mock_config = MagicMock()
+    mock_config.api_key = "test-key"
+    mock_config.log_level = "INFO"
+    mock_config.log_file = None
+    mock_load_config.return_value = mock_config
+    mock_validate_config.return_value = []
+
+    mock_processor = mock_processor_class.return_value
+    mock_processor.process = AsyncMock()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            str(pdf_path),
+            "--vision",
+        ],
+    )
+
+    assert result.exit_code == 0
+    # Đảm bảo cli_overrides chứa vision_enabled = True
+    mock_load_config.assert_called_once_with(
+        config_path=None,
+        cli_overrides={
+            "api_key": None,
+            "log_level": "INFO",
+            "concurrency": None,
+            "use_cache": None,
+            "vision_enabled": True,
+        },
+    )

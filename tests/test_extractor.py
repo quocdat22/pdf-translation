@@ -495,6 +495,25 @@ def test_extractor_detect_alignment_and_font_family() -> None:
     block_bbox_right_align = (100.0, 100.0, 200.0, 160.0) # width = 100.0
     assert extractor._detect_alignment(block_bbox_right_align, lines_right_align, 600) == 2 # Phải là RIGHT (2)
 
+    # 5.5. Test thụt lề dòng đầu (First-line indent) - 3 dòng
+    # L0 thụt lề 15pt, L1, L2 sát lề trái, L2 là dòng cuối ngắn. L0, L1 sát lề phải.
+    lines_first_line_indent_3lines = [
+        {"bbox": (115.0, 100.0, 300.0, 120.0)}, # left_delta = 15.0, right_delta = 0.0
+        {"bbox": (100.0, 120.0, 300.0, 140.0)}, # left_delta = 0.0, right_delta = 0.0
+        {"bbox": (100.0, 140.0, 200.0, 160.0)}, # left_delta = 0.0, right_delta = 100.0 (dòng cuối ngắn)
+    ]
+    block_bbox_first_line_indent_3lines = (100.0, 100.0, 300.0, 160.0) # width = 200.0
+    assert extractor._detect_alignment(block_bbox_first_line_indent_3lines, lines_first_line_indent_3lines, 600) == 0 # Phải là LEFT (0)
+
+    # 5.6. Test thụt lề dòng đầu (First-line indent) - 2 dòng (dòng cuối ngắn)
+    # L0 thụt lề 20pt, L1 sát lề trái và kết thúc sớm (dòng cuối ngắn)
+    lines_first_line_indent_2lines = [
+        {"bbox": (120.0, 100.0, 300.0, 120.0)}, # left_delta = 20.0, right_delta = 0.0
+        {"bbox": (100.0, 120.0, 220.0, 140.0)}, # left_delta = 0.0, right_delta = 80.0
+    ]
+    block_bbox_first_line_indent_2lines = (100.0, 100.0, 300.0, 140.0) # width = 200.0
+    assert extractor._detect_alignment(block_bbox_first_line_indent_2lines, lines_first_line_indent_2lines, 600) == 0 # Phải là LEFT (0)
+
 
 def test_extractor_split_non_paragraph_block() -> None:
     """Test tính năng tự động chia nhỏ block thành các dòng độc lập khi block không phải paragraph (như tên tác giả/email)."""

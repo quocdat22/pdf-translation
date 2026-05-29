@@ -523,7 +523,20 @@ class TextExtractor:
                 (line.get("bbox", (0, 0, 0, 0))[0] - bx0) < left_threshold 
                 for line in lines
             )
-            if body_left_flush:
+            
+            # Phát hiện thụt lề dòng đầu (First-line indent): Dòng đầu thụt lề, tất cả các dòng sau căn lề trái sát bx0.
+            # Đối với block 2 dòng, cần thêm điều kiện dòng cuối không sát lề phải để tránh nhầm với căn phải.
+            # Đối với block từ 3 dòng trở lên, việc tất cả các dòng từ dòng 2 trở đi sát lề trái là đủ để khẳng định căn trái.
+            first_line_indented = (
+                len(lines) > 1 
+                and all((line.get("bbox", (0, 0, 0, 0))[0] - bx0) < 3.0 for line in lines[1:])
+                and (len(lines) >= 3 or (bx1 - lines[-1].get("bbox", (0, 0, 0, 0))[2]) > 5.0)
+            )
+
+            if body_left_flush or first_line_indented:
+                if first_line_indented:
+                    return 0  # LEFT
+                
                 # Nếu tất cả dòng body flush left nhưng KHÔNG ĐỒNG THỜI flush right -> LEFT
                 body_right_flush = all(
                     (bx1 - line.get("bbox", (0, 0, 0, 0))[2]) < justify_threshold 

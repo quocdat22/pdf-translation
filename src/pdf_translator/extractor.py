@@ -321,7 +321,100 @@ class TextExtractor:
                 text_blocks.append(text_block)
                 block_id += 1
 
-        return text_blocks
+        merged_blocks = self._merge_sibling_blocks(text_blocks)
+        for idx, block in enumerate(merged_blocks):
+            block.block_id = idx
+        return merged_blocks
+
+    def _merge_sibling_blocks(self, blocks: list[TextBlock]) -> list[TextBlock]:
+        """Gộp các block văn bản liên tiếp thuộc cùng một đoạn văn."""
+        if not blocks:
+            return []
+
+        # Sắp xếp các block theo tọa độ y0 trước, nếu bằng nhau thì theo x0
+        sorted_blocks = sorted(blocks, key=lambda b: (b.bbox[1], b.bbox[0]))
+        merged_blocks: list[TextBlock] = []
+
+        i = 0
+        while i < len(sorted_blocks):
+            current = sorted_blocks[i]
+
+            # Thử gộp các block tiếp theo vào current
+            j = i + 1
+            while j < len(sorted_blocks):
+                next_block = sorted_blocks[j]
+
+                # Điều kiện gộp:
+                # 1. Cùng là block thường (không phải ô bảng)
+                if current.is_table_cell or next_block.is_table_cell:
+                    break
+
+                # 2. Khoảng cách dọc nhỏ và không bị chồng lấn ngược quá mức
+                vertical_gap = next_block.bbox[1] - current.bbox[3]
+                max_allowed_gap = max(8.0, current.font_size * 0.8)
+
+                # 3. Trùng khớp biên trái (x0) gần như tương đồng (lệch tối đa 8pt do thụt đầu dòng hoặc dấu ngoặc)
+                x0_diff = abs(current.bbox[0] - next_block.bbox[0])
+
+                # 4. Trùng khớp kiểu font
+                same_style = (
+                    current.font_family == next_block.font_family and
+                    abs(current.font_size - next_block.font_size) <= 1.0
+                )
+
+                # 5. Kiểm tra ký tự kết thúc/bắt đầu của block:
+                # Nếu block sau bắt đầu bằng ký tự đầu dòng list (bullet, số thứ tự, gạch đầu dòng), không gộp.
+                is_next_list_start = re.match(
+                    r'^\s*([•\-\*\u2022\u25e6\u25aa\u25ab]|\d+[\.)]|\[\d+\])',
+                    next_block.text
+                ) is not None
+
+                ends_sentence = re.search(r'[.!?]["”]?\s*$', current.text) is not None
+                starts_with_lowercase = next_block.text and next_block.text.strip() and next_block.text.strip()[0].islower()
+
+                should_merge = False
+                if (-3.0 <= vertical_gap <= max_allowed_gap) and same_style and not is_next_list_start:
+                    if x0_diff < 8.0:
+                        if not ends_sentence or starts_with_lowercase:
+                            should_merge = True
+
+                if should_merge:
+                    # Tạo block gộp mới
+                    new_bbox = (
+                        min(current.bbox[0], next_block.bbox[0]),
+                        min(current.bbox[1], next_block.bbox[1]),
+                        max(current.bbox[2], next_block.bbox[2]),
+                        max(current.bbox[3], next_block.bbox[3]),
+                    )
+
+                    # Cập nhật block hiện tại
+                    current = TextBlock(
+                        block_id=current.block_id,
+                        text=current.text + " " + next_block.text,
+                        bbox=new_bbox,
+                        font_size=current.font_size,
+                        font_name=current.font_name,
+                        color=current.color,
+                        is_bold=current.is_bold,
+                        is_italic=current.is_italic,
+                        page_number=current.page_number,
+                        is_table_cell=False,
+                        align=current.align,
+                        font_family=current.font_family,
+                        line_count=current.line_count + next_block.line_count,
+                        semantic_role=current.semantic_role or next_block.semantic_role,
+                        semantic_context=current.semantic_context or next_block.semantic_context,
+                        region_id=current.region_id or next_block.region_id
+                    )
+                    j += 1
+                else:
+                    break
+
+            merged_blocks.append(current)
+            i = j
+
+        return merged_blocks
+
 
     def _is_block_vertical(self, raw_block: dict) -> bool:
         """Kiểm tra xem block text có hướng thẳng đứng (vertical) hoặc xoay dọc (rotated) hay không.

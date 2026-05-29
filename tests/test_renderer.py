@@ -740,3 +740,76 @@ def test_renderer_expand_rect_multiline() -> None:
     assert expanded_2.x1 == 250.0
     assert expanded_2.y1 == 70.0
 
+
+def test_renderer_no_expansion_if_fits() -> None:
+    """Test renderer không thực hiện nới rộng bounding box khi văn bản dịch đã vừa vặn."""
+    fm = FontManager()
+    renderer = TextRenderer(fm)
+
+    doc = fitz.open()
+    page = doc.new_page()
+
+    # Block gốc: rộng 300, cao 50 (khá rộng rãi cho câu ngắn)
+    original_block = TextBlock(
+        block_id=0,
+        text="Short text",
+        bbox=(50.0, 50.0, 350.0, 100.0),
+        font_size=12.0,
+        font_name="Helvetica",
+        color=(0, 0, 0),
+        page_number=0,
+        line_count=2,  # Đặt line_count >= 2 để bình thường bị kích hoạt nới rộng 20%
+    )
+
+    translated_block = TranslatedBlock(
+        original=original_block,
+        translated_text="Văn bản ngắn vừa vặn",
+        adjusted_font_size=12.0,
+    )
+
+    renderer.render_page(page, [translated_block], min_font_size=6.0)
+
+    # Do văn bản ngắn vừa vặn, adjusted_bbox phải bằng bbox gốc (không nới rộng)
+    assert translated_block.adjusted_bbox == original_block.bbox
+    assert translated_block.adjusted_font_size == original_block.font_size
+
+    doc.close()
+
+
+def test_renderer_expansion_if_overflows() -> None:
+    """Test renderer thực hiện nới rộng bounding box khi văn bản dịch bị tràn (overflow)."""
+    fm = FontManager()
+    renderer = TextRenderer(fm)
+
+    doc = fitz.open()
+    page = doc.new_page()
+
+    # Block gốc: rộng 100, cao 40
+    original_block = TextBlock(
+        block_id=0,
+        text="A very very long text",
+        bbox=(50.0, 50.0, 150.0, 90.0),
+        font_size=12.0,
+        font_name="Helvetica",
+        color=(0, 0, 0),
+        page_number=0,
+        line_count=2,
+    )
+
+    translated_block = TranslatedBlock(
+        original=original_block,
+        translated_text="Quy trình phát triển ứng dụng AI và các thách thức lớn trong thực tế triển khai hệ thống",
+        adjusted_font_size=12.0,
+    )
+
+    renderer.render_page(page, [translated_block], min_font_size=6.0)
+
+    # Do tràn và nới rộng giúp cải thiện font size (7.0 -> 8.0), adjusted_bbox phải được nới rộng (khác bbox gốc)
+    assert translated_block.adjusted_bbox != original_block.bbox
+    # Và adjusted_bbox.width phải rộng hơn bbox gốc.width
+    assert translated_block.adjusted_bbox[2] > original_block.bbox[2]
+
+    doc.close()
+
+
+

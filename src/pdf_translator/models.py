@@ -99,11 +99,13 @@ class TranslatedBlock:
         original: Block gốc (TextBlock).
         translated_text: Nội dung đã dịch sang tiếng Việt.
         adjusted_font_size: Font size sau khi auto-shrink (nếu cần).
+        adjusted_bbox: Bounding box sau khi điều chỉnh/nới rộng (nếu cần).
     """
 
     original: TextBlock
     translated_text: str
     adjusted_font_size: float
+    adjusted_bbox: tuple[float, float, float, float] | None = None
 
     def __post_init__(self) -> None:
         """Đảm bảo adjusted_font_size không âm."""

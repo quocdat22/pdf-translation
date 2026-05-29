@@ -74,26 +74,60 @@ class TextRenderer:
                 if block.original.is_table_cell:
                     rect_to_use = fitz.Rect(block.original.bbox)
                     cell_min_font_size = min(4.0, min_font_size)
-                else:
-                    rect_to_use = self._get_expanded_rect(
-                        block.original.bbox,
-                        block.original.font_size,
-                        all_blocks=translated_blocks,
-                        current_block=block,
-                        page_rect=page.rect,
+                    adjusted_size = self._calculate_font_size(
+                        temp_page=temp_page,
+                        text=block.translated_text,
+                        bbox=tuple(rect_to_use),
+                        original_size=block.original.font_size,
+                        min_size=cell_min_font_size,
+                        font_name=font_name,
+                        align=block.original.align,
                     )
-                    cell_min_font_size = min_font_size
-
-                adjusted_size = self._calculate_font_size(
-                    temp_page=temp_page,
-                    text=block.translated_text,
-                    bbox=tuple(rect_to_use),
-                    original_size=block.original.font_size,
-                    min_size=cell_min_font_size,
-                    font_name=font_name,
-                    align=block.original.align,
-                )
-                block.adjusted_font_size = adjusted_size
+                    block.adjusted_font_size = adjusted_size
+                    block.adjusted_bbox = tuple(rect_to_use)
+                else:
+                    # 1. Tính toán font size tối ưu nhất nếu dùng bbox gốc (không nới rộng)
+                    size_orig = self._calculate_font_size(
+                        temp_page=temp_page,
+                        text=block.translated_text,
+                        bbox=block.original.bbox,
+                        original_size=block.original.font_size,
+                        min_size=min_font_size,
+                        font_name=font_name,
+                        align=block.original.align,
+                    )
+                    
+                    if size_orig >= block.original.font_size:
+                        # Vừa vặn hoàn hảo ở cỡ chữ gốc, dùng luôn bbox gốc (không nới rộng)
+                        block.adjusted_font_size = block.original.font_size
+                        block.adjusted_bbox = block.original.bbox
+                    else:
+                        # Thử tính toán với bbox đã nới rộng để xem có cải thiện được cỡ chữ không
+                        expanded_rect = self._get_expanded_rect(
+                            block.original.bbox,
+                            block.original.font_size,
+                            all_blocks=translated_blocks,
+                            current_block=block,
+                            page_rect=page.rect,
+                        )
+                        size_expanded = self._calculate_font_size(
+                            temp_page=temp_page,
+                            text=block.translated_text,
+                            bbox=tuple(expanded_rect),
+                            original_size=block.original.font_size,
+                            min_size=min_font_size,
+                            font_name=font_name,
+                            align=block.original.align,
+                        )
+                        
+                        if size_expanded > size_orig:
+                            # Nới rộng bbox giúp cải thiện cỡ chữ -> sử dụng bbox nới rộng
+                            block.adjusted_font_size = size_expanded
+                            block.adjusted_bbox = tuple(expanded_rect)
+                        else:
+                            # Nới rộng bbox không giúp ích (ví dụ bị giới hạn chiều cao) -> dùng bbox gốc để bảo toàn layout
+                            block.adjusted_font_size = size_orig
+                            block.adjusted_bbox = block.original.bbox
         finally:
             temp_doc.close()
 
@@ -132,7 +166,9 @@ class TextRenderer:
             if not block.translated_text:
                 continue
 
-            if block.original.is_table_cell:
+            if block.adjusted_bbox is not None:
+                rect = fitz.Rect(block.adjusted_bbox)
+            elif block.original.is_table_cell:
                 rect = fitz.Rect(block.original.bbox)
             else:
                 rect = self._get_expanded_rect(

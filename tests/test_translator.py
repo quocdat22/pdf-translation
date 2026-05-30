@@ -453,5 +453,163 @@ def test_translator_parse_response_removes_semantic_markers() -> None:
     assert parsed_map_mixed[0] == "Tiêu đề"
 
 
+def test_translategemma_utils() -> None:
+    """Test các hàm helper của TranslateGemma."""
+    from pdf_translator.translategemma import (
+        is_translategemma_model,
+        resolve_translategemma_lang,
+        build_translategemma_prompt,
+    )
+    # Test model check
+    assert is_translategemma_model("translategemma") is True
+    assert is_translategemma_model("translategemma:12b") is True
+    assert is_translategemma_model("translategemma:latest") is True
+    assert is_translategemma_model("deepseek-chat") is False
+
+    # Test language resolver
+    assert resolve_translategemma_lang("English") == ("English", "en")
+    assert resolve_translategemma_lang("vi") == ("Vietnamese", "vi")
+    assert resolve_translategemma_lang("vi-VN") == ("Vietnamese", "vi-VN")
+    assert resolve_translategemma_lang("zh-Hans") == ("Chinese", "zh-Hans")
+    assert resolve_translategemma_lang("German") == ("German", "de")
+    assert resolve_translategemma_lang("unknown-lang") == ("Unknown-lang", "unknown-lang")
+
+    # Test prompt building
+    prompt = build_translategemma_prompt("English", "en", "Vietnamese", "vi", "[1] Text", strict=False)
+    assert "English (en) to Vietnamese (vi) translator" in prompt
+    # Two blank lines before target text
+    assert "translate the following English text into Vietnamese:\n\n\n[1] Text" in prompt
+
+    prompt_strict = build_translategemma_prompt("English", "en", "Vietnamese", "vi", "[1] Text", strict=True)
+    assert "CRITICAL: You must return exactly the same number of translation blocks" in prompt_strict
+
+
+@pytest.mark.asyncio
+async def test_translator_translategemma_success() -> None:
+    """Test dịch thành công khi sử dụng model TranslateGemma."""
+    config = AppConfig(
+        api_key="test-key",
+        model="translategemma:12b",
+        source_lang="English",
+        target_lang="Vietnamese",
+        use_cache=False,
+    )
+    translator = Translator(config)
+    assert translator.is_translategemma is True
+
+    # Mock API response
+    mock_create = AsyncMock()
+    mock_response = MagicMock()
+    mock_response.choices = [
+        MagicMock(
+            message=MagicMock(
+                content="[1] Xin chào thế giới\n[2] Tài liệu mẫu"
+            )
+        )
+    ]
+    mock_create.return_value = mock_response
+    translator.client.chat.completions.create = mock_create
+
+    blocks = [
+        TextBlock(
+            block_id=0,
+            text="Hello world",
+            bbox=(0, 0, 100, 20),
+            font_size=10.0,
+            font_name="helv",
+            color=0,
+        ),
+        TextBlock(
+            block_id=1,
+            text="Sample document",
+            bbox=(0, 30, 100, 50),
+            font_size=10.0,
+            font_name="helv",
+            color=0,
+        ),
+    ]
+
+    translated = await translator.translate_page(blocks)
+
+    assert len(translated) == 2
+    assert translated[0].translated_text == "Xin chào thế giới"
+    assert translated[1].translated_text == "Tài liệu mẫu"
+
+    # Verify API called with single user message (no system prompt)
+    mock_create.assert_called_once()
+    call_kwargs = mock_create.call_args[1]
+    assert call_kwargs["model"] == "translategemma:12b"
+    messages = call_kwargs["messages"]
+    assert len(messages) == 1
+    assert messages[0]["role"] == "user"
+    assert "English (en) to Vietnamese (vi) translator" in messages[0]["content"]
+    assert "translate the following English text into Vietnamese:\n\n\n[1] Hello world\n[2] Sample document" in messages[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_translator_translategemma_retry() -> None:
+    """Test cơ chế retry thành công cho TranslateGemma khi lần đầu trả về thiếu block."""
+    config = AppConfig(
+        api_key="test-key",
+        model="translategemma:12b",
+        source_lang="en",
+        target_lang="vi",
+        use_cache=False,
+    )
+    translator = Translator(config)
+
+    mock_create = AsyncMock()
+    # Lần 1: Trả về thiếu block [2]
+    mock_response_bad = MagicMock()
+    mock_response_bad.choices = [
+        MagicMock(message=MagicMock(content="[1] Xin chào thế giới"))
+    ]
+    # Lần 2: Trả về đầy đủ
+    mock_response_good = MagicMock()
+    mock_response_good.choices = [
+        MagicMock(
+            message=MagicMock(
+                content="[1] Xin chào thế giới\n[2] Tài liệu mẫu"
+            )
+        )
+    ]
+
+    mock_create.side_effect = [mock_response_bad, mock_response_good]
+    translator.client.chat.completions.create = mock_create
+
+    blocks = [
+        TextBlock(
+            block_id=0,
+            text="Hello world",
+            bbox=(0, 0, 100, 20),
+            font_size=10.0,
+            font_name="helv",
+            color=0,
+        ),
+        TextBlock(
+            block_id=1,
+            text="Sample document",
+            bbox=(0, 30, 100, 50),
+            font_size=10.0,
+            font_name="helv",
+            color=0,
+        ),
+    ]
+
+    translated = await translator.translate_page(blocks)
+
+    assert len(translated) == 2
+    assert translated[0].translated_text == "Xin chào thế giới"
+    assert translated[1].translated_text == "Tài liệu mẫu"
+
+    assert mock_create.call_count == 2
+    # Verify the second call received the strict prompt
+    second_call_kwargs = mock_create.call_args_list[1][1]
+    second_messages = second_call_kwargs["messages"]
+    assert len(second_messages) == 1
+    assert "CRITICAL: You must return exactly the same number of translation blocks" in second_messages[0]["content"]
+
+
+
 
 

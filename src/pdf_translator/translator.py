@@ -14,6 +14,11 @@ import openai
 from pdf_translator.models import AppConfig, TextBlock, TranslatedBlock
 from pdf_translator.logger import get_logger
 from pdf_translator.cache import TranslationCache
+from pdf_translator.translategemma import (
+    is_translategemma_model,
+    resolve_translategemma_lang,
+    build_translategemma_prompt,
+)
 
 logger = get_logger(__name__)
 
@@ -43,6 +48,7 @@ class Translator:
         self.source_lang = config.source_lang
         self.target_lang = config.target_lang
         self.cache = TranslationCache(DEFAULT_CACHE_PATH)
+        self.is_translategemma = is_translategemma_model(self.model)
 
     async def translate_page(
         self, blocks: list[TextBlock]
@@ -93,8 +99,17 @@ class Translator:
                 for i in range(len(blocks))
             ]
 
-        prompt = self._build_prompt(uncached_blocks)
-        system_prompt = self._get_system_prompt()
+        if self.is_translategemma:
+            source_name, source_code = resolve_translategemma_lang(self.source_lang)
+            target_name, target_code = resolve_translategemma_lang(self.target_lang)
+            prompt = build_translategemma_prompt(
+                source_name, source_code, target_name, target_code,
+                self._build_prompt(uncached_blocks), strict=False
+            )
+            system_prompt = ""
+        else:
+            prompt = self._build_prompt(uncached_blocks)
+            system_prompt = self._get_system_prompt()
 
         async with self.semaphore:
             try:
@@ -141,15 +156,25 @@ class Translator:
                 )
                 parsed_map = {}
 
-            # Retry 1 lần với strict system prompt
-            strict_system_prompt = (
-                self._get_system_prompt()
-                + "\n\nCRITICAL: You must return exactly the same number of translation blocks as the input. "
-                "Do not omit any numbers. Do not add any explanations or notes. "
-                "Format each output block starting with the correct index bracket: [index] translation text."
-            )
+            # Retry 1 lần với strict system prompt / prompt
+            if self.is_translategemma:
+                source_name, source_code = resolve_translategemma_lang(self.source_lang)
+                target_name, target_code = resolve_translategemma_lang(self.target_lang)
+                strict_prompt = build_translategemma_prompt(
+                    source_name, source_code, target_name, target_code,
+                    self._build_prompt(uncached_blocks), strict=True
+                )
+                strict_system_prompt = ""
+            else:
+                strict_prompt = prompt
+                strict_system_prompt = (
+                    self._get_system_prompt()
+                    + "\n\nCRITICAL: You must return exactly the same number of translation blocks as the input. "
+                    "Do not omit any numbers. Do not add any explanations or notes. "
+                    "Format each output block starting with the correct index bracket: [index] translation text."
+                )
             try:
-                response = await self._call_api(strict_system_prompt, prompt)
+                response = await self._call_api(strict_system_prompt, strict_prompt)
                 new_parsed_map = self._parse_response(response, uncached_blocks)
                 combined_map = {**parsed_map, **new_parsed_map}
 
@@ -348,12 +373,16 @@ class Translator:
         delay = 1.0
         for attempt in range(max_retries):
             try:
-                response = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
+                if self.is_translategemma:
+                    messages = [{"role": "user", "content": prompt}]
+                else:
+                    messages = [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt},
-                    ],
+                    ]
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
                     temperature=0.1,  # Nhiệt độ thấp giúp sinh kết quả nhất quán
                 )
                 content = response.choices[0].message.content

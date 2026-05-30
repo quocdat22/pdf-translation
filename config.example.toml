@@ -45,6 +45,11 @@ target_lang = "Vietnamese"
 # Tăng lên nếu muốn nhanh hơn (chú ý rate limit của API)
 concurrency = 5
 
+# Dịch song ngữ song song (side-by-side: trang gốc bên trái, trang dịch bên phải)
+# Cờ bật tắt nhanh bằng CLI: --bilingual
+bilingual = false
+
+
 [rendering]
 # Font size tối thiểu khi auto-shrink (pt)
 # Text có thể bị cắt nếu dịch quá dài và font đã nhỏ nhất

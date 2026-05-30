@@ -152,9 +152,54 @@ class PDFProcessor:
                 except Exception as e:
                     logger.error(f"Lỗi khi render Trang {page_num}: {e}")
 
-            # Lưu tài liệu đã dịch bằng cách dọn dẹp các đối tượng thừa và nén PDF
-            logger.info(f"Lưu file PDF dịch thuật tại: {output_path}")
-            doc.save(output_path, garbage=3, deflate=True)
+            if self.config.bilingual:
+                logger.info("Tạo tài liệu song ngữ (bilingual side-by-side)...")
+                doc_bilingual = fitz.open()
+                doc_orig = fitz.open(input_path)
+                try:
+                    for page_num in range(total_pages):
+                        page_orig = doc_orig[page_num]
+                        is_translated = page_num in target_pages and (
+                            page_num not in translated_results
+                            or translated_results[page_num].success
+                        )
+                        if is_translated:
+                            w = page_orig.rect.width
+                            h = page_orig.rect.height
+                            
+                            new_page = doc_bilingual.new_page(width=w * 2, height=h)
+                            
+                            # Place original page on the left
+                            left_rect = fitz.Rect(0, 0, w, h)
+                            new_page.show_pdf_page(left_rect, doc_orig, page_num)
+                            
+                            # Place translated page on the right
+                            right_rect = fitz.Rect(w, 0, w * 2, h)
+                            new_page.show_pdf_page(right_rect, doc, page_num)
+                            
+                            # Draw a thin grey separator line in the middle
+                            new_page.draw_line(
+                                fitz.Point(w, 0),
+                                fitz.Point(w, h),
+                                color=(0.7, 0.7, 0.7),
+                                width=0.5
+                            )
+                        else:
+                            # Not translated or failed -> single width original page
+                            w = page_orig.rect.width
+                            h = page_orig.rect.height
+                            new_page = doc_bilingual.new_page(width=w, height=h)
+                            new_page.show_pdf_page(new_page.rect, doc_orig, page_num)
+                    
+                    logger.info(f"Lưu file PDF song ngữ tại: {output_path}")
+                    doc_bilingual.save(output_path, garbage=3, deflate=True)
+                finally:
+                    doc_bilingual.close()
+                    doc_orig.close()
+            else:
+                # Lưu tài liệu đã dịch bằng cách dọn dẹp các đối tượng thừa và nén PDF
+                logger.info(f"Lưu file PDF dịch thuật tại: {output_path}")
+                doc.save(output_path, garbage=3, deflate=True)
             logger.info("Dịch thuật hoàn tất.")
 
         finally:

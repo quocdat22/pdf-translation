@@ -146,6 +146,12 @@ def parse_pages_string(pages_str: str) -> list[int]:
     default=False,
     help="Enable Vision-first mode: use Ollama to analyze page layout before translating.",
 )
+@click.option(
+    "--bilingual",
+    is_flag=True,
+    default=False,
+    help="Enable Bilingual Display Mode: show original and translation side-by-side.",
+)
 @click.version_option(version=__version__, prog_name="pdf-translator")
 def main(
     input_file: Path,
@@ -158,6 +164,7 @@ def main(
     pages: str | None,
     no_cache: bool,
     vision: bool,
+    bilingual: bool,
 ) -> None:
     """Translate a PDF from English to Vietnamese, preserving the original layout.
 
@@ -168,20 +175,24 @@ def main(
         pdf-translator document.pdf --dry-run
         pdf-translator document.pdf --concurrency 10 --log-level DEBUG
         pdf-translator document.pdf --pages 1,3,5-8
+        pdf-translator document.pdf --bilingual
     """
-    # 1. Xác định output path
-    if output_file is None:
-        output_file = input_file.parent / f"{input_file.stem}_translated.pdf"
-
-    # 2. Load config
+    # 1. Load config
     cli_overrides = {
         "api_key": api_key,
         "log_level": log_level,
         "concurrency": concurrency,
         "use_cache": False if no_cache else None,
         "vision_enabled": True if vision else None,
+        "bilingual": True if bilingual else None,
     }
     config = load_config(config_path=config_file, cli_overrides=cli_overrides)
+
+    # 2. Xác định output path
+    if output_file is None:
+        suffix = "_bilingual.pdf" if config.bilingual else "_translated.pdf"
+        output_file = input_file.parent / f"{input_file.stem}{suffix}"
+
 
     # 3. Setup logger (trước khi dùng logger ở bất kỳ đâu)
     setup_logger(level=config.log_level, log_file=config.log_file)

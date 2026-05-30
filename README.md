@@ -11,6 +11,7 @@
 ## ✨ Tính năng nổi bật
 
 - **🛡️ Bảo toàn bố cục hoàn hảo:** Giữ nguyên vị trí (bounding boxes), màu sắc chữ, các định dạng cơ bản (chữ đậm, chữ nghiêng) và các thành phần đồ họa khác trong file PDF.
+- **📖 Chế độ hiển thị song ngữ (Bilingual Mode):** Dịch và xuất bản tài liệu song ngữ với trang gốc bên trái và trang dịch bên phải (side-by-side) giúp dễ dàng đối chiếu, đọc hiểu.
 - **⚡ Tự động lưu cache dịch thuật (Local SQLite Cache):** Ghi nhớ các đoạn văn bản đã dịch trước đó để giảm thiểu chi phí gọi API và tăng tốc độ xử lý khi dịch lại tài liệu.
 - **👁️ Chế độ Vision-first (Layout Analysis):** Sử dụng các mô hình Vision cục bộ (thông qua Ollama) để phân tích cấu trúc trang (tiêu đề, ghi chú, bảng biểu, chú thích hình ảnh...) trước khi dịch, giúp cải thiện văn phong dịch thuật đúng ngữ cảnh ngữ nghĩa.
 - **🔄 Tự động tối ưu kích thước chữ (Auto-Shrink):** Tự động điều chỉnh thu nhỏ cỡ chữ (font size) khi văn bản tiếng Việt dịch ra dài hơn văn bản gốc, tránh việc tràn văn bản hoặc ghi đè lên các phần tử khác.
@@ -87,6 +88,7 @@ source_lang = "English"
 target_lang = "Vietnamese"
 concurrency = 5  # Số trang xử lý song song
 cache = true     # Bật/tắt lưu cache dịch thuật cục bộ (SQLite)
+bilingual = false # Bật/tắt chế độ dịch song ngữ song song (side-by-side)
 
 [rendering]
 min_font_size = 6.0  # Cỡ chữ tối thiểu khi co giãn
@@ -133,6 +135,7 @@ Danh sách đầy đủ các biến môi trường cấu hình:
 - `PDF_TRANSLATOR_LOG_LEVEL`: Cấp độ ghi log
 - `PDF_TRANSLATOR_LOG_FILE`: Đường dẫn file ghi log
 - `PDF_TRANSLATOR_USE_CACHE`: Đặt `false` hoặc `0` để tắt cache dịch thuật
+- `PDF_TRANSLATOR_BILINGUAL`: Đặt `true` hoặc `1` để bật chế độ dịch song ngữ song song
 - `PDF_TRANSLATOR_VISION_ENABLED`: Đặt `true` hoặc `1` để bật chế độ Vision-first
 - `PDF_TRANSLATOR_VISION_OLLAMA_BASE_URL`: URL của máy chủ Ollama
 - `PDF_TRANSLATOR_VISION_OLLAMA_MODEL`: Tên mô hình Vision của Ollama
@@ -172,6 +175,10 @@ uv run pdf-translator document.pdf --no-cache
 
 # 9. Bật chế độ phân tích bố cục Vision-first bằng mô hình AI cục bộ
 uv run pdf-translator document.pdf --vision
+
+# 10. Bật chế độ dịch song ngữ song song (side-by-side)
+uv run pdf-translator document.pdf --bilingual
+
 ```
 
 ### Chi tiết các tham số CLI:
@@ -188,6 +195,7 @@ uv run pdf-translator document.pdf --vision
 | `--pages` | `-p` | Chuỗi | `None` | Chỉ dịch các trang được chọn (ví dụ: `1,3,5-8`). Mặc định dịch toàn bộ. |
 | `--no-cache` | — | Cờ | `False` | Tắt chế độ lưu cache dịch thuật cục bộ. |
 | `--vision` | — | Cờ | `False` | Bật chế độ Vision-first (phân tích layout bằng Ollama trước khi dịch). |
+| `--bilingual` | — | Cờ | `False` | Bật chế độ dịch song ngữ song song (side-by-side). |
 
 ---
 

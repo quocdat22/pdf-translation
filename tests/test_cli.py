@@ -98,6 +98,7 @@ def test_cli_dry_run(
     mock_config.api_key = "test-key"
     mock_config.log_level = "INFO"
     mock_config.log_file = None
+    mock_config.bilingual = False
     mock_load_config.return_value = mock_config
     mock_validate_config.return_value = []
 
@@ -146,6 +147,7 @@ def test_cli_config_validation_error(
     mock_config.api_key = ""
     mock_config.log_level = "INFO"
     mock_config.log_file = None
+    mock_config.bilingual = False
     mock_load_config.return_value = mock_config
     
     # Mô phỏng lỗi validate
@@ -177,6 +179,7 @@ def test_cli_invalid_pages_format(
     mock_config.api_key = "test-key"
     mock_config.log_level = "INFO"
     mock_config.log_file = None
+    mock_config.bilingual = False
     mock_load_config.return_value = mock_config
     mock_validate_config.return_value = []
 
@@ -216,6 +219,7 @@ def test_cli_vision_override(
     mock_config.api_key = "test-key"
     mock_config.log_level = "INFO"
     mock_config.log_file = None
+    mock_config.bilingual = False
     mock_load_config.return_value = mock_config
     mock_validate_config.return_value = []
 
@@ -241,5 +245,65 @@ def test_cli_vision_override(
             "concurrency": None,
             "use_cache": None,
             "vision_enabled": True,
+            "bilingual": None,
         },
     )
+
+
+@patch("pdf_translator.cli.load_config")
+@patch("pdf_translator.cli.validate_config")
+@patch("pdf_translator.processor.PDFProcessor")
+def test_cli_bilingual_override(
+    mock_processor_class: MagicMock,
+    mock_validate_config: MagicMock,
+    mock_load_config: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """Kiểm tra CLI nhận và chuyển tiếp tham số --bilingual và điều chỉnh tên file."""
+    doc = fitz.open()
+    doc.new_page()
+    pdf_path = tmp_path / "input.pdf"
+    doc.save(pdf_path)
+    doc.close()
+
+    mock_config = MagicMock()
+    mock_config.api_key = "test-key"
+    mock_config.log_level = "INFO"
+    mock_config.log_file = None
+    mock_config.bilingual = True
+    mock_load_config.return_value = mock_config
+    mock_validate_config.return_value = []
+
+    mock_processor = mock_processor_class.return_value
+    mock_processor.process = AsyncMock()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            str(pdf_path),
+            "--bilingual",
+        ],
+    )
+
+    assert result.exit_code == 0
+    # Đảm bảo cli_overrides chứa bilingual = True
+    mock_load_config.assert_called_once_with(
+        config_path=None,
+        cli_overrides={
+            "api_key": None,
+            "log_level": "INFO",
+            "concurrency": None,
+            "use_cache": None,
+            "vision_enabled": None,
+            "bilingual": True,
+        },
+    )
+    # Kiểm tra output path có hậu tố _bilingual.pdf
+    mock_processor.process.assert_called_once_with(
+        input_path=str(pdf_path),
+        output_path=str(pdf_path.parent / "input_bilingual.pdf"),
+        pages=None,
+        dry_run=False,
+    )
+

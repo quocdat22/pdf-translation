@@ -171,3 +171,5 @@ class AppConfig:
     vision_ollama_model: str = "qwen3.5:2b"
     vision_dpi: int = 200
     vision_timeout: int | None = None
+    bilingual: bool = False
+

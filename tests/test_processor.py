@@ -133,3 +133,73 @@ async def test_processor_page_failure(tmp_path) -> None:
     assert "Hello page 1" in out_doc[0].get_text()
     assert "Hello page 2" in out_doc[1].get_text()
     out_doc.close()
+
+
+@pytest.mark.asyncio
+async def test_processor_bilingual_mode(tmp_path) -> None:
+    """Test PDFProcessor với chế độ bilingual song ngữ song song."""
+    # Tạo PDF 2 trang
+    doc = fitz.open()
+    page1 = doc.new_page(width=300, height=400)
+    page1.insert_textbox(fitz.Rect(50, 50, 250, 100), "Hello page 1", fontsize=12)
+    page2 = doc.new_page(width=300, height=400)
+    page2.insert_textbox(fitz.Rect(50, 50, 250, 100), "Hello page 2", fontsize=12)
+    
+    pdf_path = tmp_path / "input.pdf"
+    doc.save(pdf_path)
+    doc.close()
+
+    # Cấu hình bilingual = True
+    config = AppConfig(api_key="test-key", bilingual=True)
+    processor = PDFProcessor(config)
+
+    # Mock translate_page
+    from pdf_translator.models import TranslatedBlock
+    
+    async def mock_translate(blocks):
+        return [
+            TranslatedBlock(
+                original=block,
+                translated_text="Xin chào trang 1",
+                adjusted_font_size=block.font_size
+            )
+            for block in blocks
+        ]
+        
+    processor.translator.translate_page = mock_translate
+
+    output_path = tmp_path / "output.pdf"
+
+    # Chỉ dịch trang 1 (pages=[0])
+    await processor.process(
+        input_path=str(pdf_path),
+        output_path=str(output_path),
+        pages=[0],
+        dry_run=False,
+    )
+
+    assert output_path.exists()
+    out_doc = fitz.open(output_path)
+    
+    assert len(out_doc) == 2
+    
+    # Trang 1: dịch thành công -> phải có chiều rộng gấp đôi (300 * 2 = 600)
+    assert out_doc[0].rect.width == 600
+    assert out_doc[0].rect.height == 400
+    
+    # Trang 2: không dịch -> giữ nguyên chiều rộng (300)
+    assert out_doc[1].rect.width == 300
+    assert out_doc[1].rect.height == 400
+    
+    # Kiểm tra xem có chứa cả text gốc và text dịch trên trang 1
+    p1_text = out_doc[0].get_text()
+    assert "Hello page 1" in p1_text
+    assert "Xin chào trang 1" in p1_text
+
+    # Kiểm tra xem trang 2 chỉ chứa text gốc
+    p2_text = out_doc[1].get_text()
+    assert "Hello page 2" in p2_text
+    assert "Xin chào trang 1" not in p2_text
+    
+    out_doc.close()
+

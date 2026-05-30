@@ -39,6 +39,7 @@ ENV_MAP: dict[str, str] = {
     "PDF_TRANSLATOR_VISION_OLLAMA_MODEL": "vision_ollama_model",
     "PDF_TRANSLATOR_VISION_DPI": "vision_dpi",
     "PDF_TRANSLATOR_VISION_TIMEOUT": "vision_timeout",
+    "PDF_TRANSLATOR_BILINGUAL": "bilingual",
 }
 
 
@@ -182,7 +183,7 @@ def _flatten_toml(data: dict) -> dict:
         flat["model"] = api["model"]
 
     translation = data.get("translation", {})
-    for k in ("source_lang", "target_lang", "concurrency", "cache"):
+    for k in ("source_lang", "target_lang", "concurrency", "cache", "bilingual"):
         if k in translation:
             flat_key = "use_cache" if k == "cache" else k
             flat[flat_key] = translation[k]
@@ -219,7 +220,7 @@ def _build_config(config_dict: dict) -> AppConfig:
     int_fields = {"concurrency", "vision_dpi", "vision_timeout"}
     float_fields = {"min_font_size"}
     opt_str_fields = {"log_file"}
-    bool_fields = {"use_cache", "vision_enabled"}
+    bool_fields = {"use_cache", "vision_enabled", "bilingual"}
 
     for field_name in str_fields:
         if field_name in config_dict:

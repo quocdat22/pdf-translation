@@ -138,6 +138,37 @@ class TestLoadConfig:
         assert config.vision_dpi == 400
         assert config.vision_timeout == 600
 
+    def test_bilingual_config_defaults(self):
+        """Kiểm tra giá trị mặc định của cấu hình bilingual."""
+        config = load_config(config_path=Path("nonexistent.toml"))
+        assert config.bilingual is False
+
+    def test_load_bilingual_from_toml(self, tmp_path: Path):
+        """Nạp cấu hình bilingual từ file TOML."""
+        toml_file = tmp_path / "config.toml"
+        toml_content = """
+        [translation]
+        bilingual = true
+        """
+        toml_file.write_text(toml_content, encoding="utf-8")
+        config = load_config(config_path=toml_file)
+        assert config.bilingual is True
+
+    def test_bilingual_cli_override(self, tmp_path: Path):
+        """CLI overrides ghi đè cấu hình bilingual."""
+        toml_file = tmp_path / "config.toml"
+        toml_content = """
+        [translation]
+        bilingual = false
+        """
+        toml_file.write_text(toml_content, encoding="utf-8")
+        config = load_config(
+            config_path=toml_file,
+            cli_overrides={"bilingual": True}
+        )
+        assert config.bilingual is True
+
+
 
 class TestValidateConfig:
     def _valid_config(self) -> AppConfig:
@@ -278,3 +309,13 @@ class TestFlattenToml:
         assert flat["vision_ollama_model"] == "model-v"
         assert flat["vision_dpi"] == 150
         assert flat["vision_timeout"] == 120
+
+    def test_bilingual_toml_flatten(self):
+        data = {
+            "translation": {
+                "bilingual": True
+            }
+        }
+        flat = _flatten_toml(data)
+        assert flat["bilingual"] is True
+
